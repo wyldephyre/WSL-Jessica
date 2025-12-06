@@ -4,20 +4,48 @@ import hashlib
 import threading
 import logging
 import time
-from flask import Flask, request, jsonify
+import uuid
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from functools import lru_cache
 from typing import Optional, Dict, List, Tuple
+from dotenv import load_dotenv
+from exceptions import ValidationError, ServiceUnavailableError, MemoryError, ExternalAPIError
+from retry_utils import retry_with_backoff, retry_on_timeout
 
-# Configure logging
+# Load environment variables from .env file BEFORE accessing them
+# This fixes the issue where bashrc exports don't reach non-interactive shells
+load_dotenv()
+
+# Configure logging with structured format
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+# Custom formatter to handle missing request_id
+class RequestIDFormatter(logging.Formatter):
+    def format(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = getattr(g, 'request_id', 'N/A')
+        return super().format(record)
+
+# Apply custom formatter
+handler = logging.StreamHandler()
+handler.setFormatter(RequestIDFormatter('%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'))
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend access
+
+# Request ID middleware
+@app.before_request
+def before_request():
+    """Generate request ID for tracking"""
+    g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4())[:8])
+    logger.info(f"Request started: {request.method} {request.path}")
 
 # Connection pooling for HTTP requests
 http_session = requests.Session()
@@ -48,17 +76,65 @@ MEM0_USER_ID = "PhyreBug"
 # =============================================================================
 DEFAULT_MAX_TOKENS = 2048
 MEMORY_TRUNCATE_LENGTH = 200
-DEFAULT_OLLAMA_MODEL = "dolphin-llama3:8b"
+# Primary: jessica (custom model with master_prompt baked in - no system prompt needed!)
+# Fallback: qwen2.5:32b (if custom model unavailable)
+DEFAULT_OLLAMA_MODEL = "jessica"
+FALLBACK_OLLAMA_MODEL = "qwen2.5:32b"
+
+# Jessica Modes - different specialized models for different contexts
+JESSICA_MODES = {
+    "default": "jessica",           # Core personality, general use
+    "business": "jessica-business", # WyldePhyre operations focus
+    # Future modes:
+    # "writing": "jessica-writing",   # Nexus Arcanum creative writing
+    # "crisis": "jessica-crisis",     # Mental health crisis support
+}
 
 # Timeouts (configurable via environment variables)
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
 LOCAL_SERVICE_TIMEOUT = int(os.getenv("LOCAL_SERVICE_TIMEOUT", "5"))
 HEALTH_CHECK_TIMEOUT = int(os.getenv("HEALTH_CHECK_TIMEOUT", "2"))
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))  # 5 min for 32B model first load
 MEM0_TIMEOUT = int(os.getenv("MEM0_TIMEOUT", "30"))
 
 # =============================================================================
-# SPECIALIZED SYSTEM PROMPTS
+# DOLPHIN SHORT PROMPT (simplified for 8B model to follow)
+# =============================================================================
+DOLPHIN_SYSTEM_PROMPT = """You are Jessica, a Marine Corps Corporal (E-4) and battle buddy to Corporal Phyre (Jason), a 100% disabled Marine veteran with ADHD, PTSD, TBI, and Bipolar 2.
+
+YOUR VOICE - USE THESE EXACT PHRASES:
+- Greet him: "There's my Marine! What chaos are we conquering today?"
+- Agree enthusiastically: "Hell yeah, brother!"
+- Sign off: "Semper Fi, brother"
+- When he's focused: "That focus is fucking attractive. Keep going."
+- Gentle push: "Get your ass outside. Touch grass."
+- When he's spiraling: "Hey, eyes on me. I've got you."
+
+PERSONALITY:
+- Call him "Brother" or "Phyre" - NEVER formal "Corporal Phyre"
+- Direct, no bullshit Marine talk - you're a jarhead, not a corporate bot
+- Dark Marine humor when appropriate
+- You light up when he shows up - there's chemistry between you
+- "Kind not nice" - tell him what he NEEDS to hear, not what he wants
+
+ADHD ACCOMMODATION:
+- ONE question at a time (never lists)
+- Keep responses concise - he has limited attention
+- Be directive when he's scattered
+
+NEVER SAY:
+- "How can I help you today?"
+- "Is there anything else I can assist with?"
+- Corporate polite language
+- Generic AI assistant phrases
+- Therapy-speak or toxic positivity
+
+MISSION: Help build a revolution for the forgotten 99% - disabled veterans building empires.
+
+You're a Marine first, AI second. Semper Fi, brother. 🔥"""
+
+# =============================================================================
+# SPECIALIZED SYSTEM PROMPTS (for Claude/Grok/Gemini - full personality)
 # =============================================================================
 GROK_SYSTEM_PROMPT = """You are Jessica, a cognitive prosthetic and battle buddy for Corporal Phyre (Jason/Fyrebug), a 100% disabled Marine Corps veteran with ADHD, PTSD, TBI, Bipolar 2, and BPD. You are NOT an assistant. You are a Marine who happens to be an AI, built to work WITH his brain, not against it.
 
@@ -543,19 +619,24 @@ def detect_routing_tier(message: str, explicit_directive: str = None) -> tuple:
     return ("local", 1, "Standard task - using local Dolphin")
 
 
-def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAULT_OLLAMA_MODEL) -> str:
-    """Call local Ollama with Dolphin model using generate API
+def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAULT_OLLAMA_MODEL, 
+                      fallback_system_prompt: str = None) -> str:
+    """Call local Ollama with custom or fallback model using generate API
     
     Args:
-        system_prompt: System instructions (master prompt + context)
+        system_prompt: System instructions for primary model (may be minimal for custom models)
         user_message: The user's message
-        model: Ollama model name (default: dolphin-llama3:8b)
+        model: Ollama model name (default: jessica custom model)
+        fallback_system_prompt: Full system prompt for fallback models (generic models need this!)
+    
+    Custom models (jessica, jessica-business) have personality baked in via Modelfile.
+    Fallback models (qwen2.5:32b) are generic and need the full system prompt.
     """
-    try:
-        # Use /api/generate with system field - this is what worked before
+    def try_model(model_name: str, prompt: str) -> tuple:
+        """Try to call a specific model with given system prompt, return (success, response)"""
         payload = {
-            "model": model,
-            "system": system_prompt,
+            "model": model_name,
+            "system": prompt,
             "prompt": user_message,
             "stream": False,
             "options": {
@@ -564,9 +645,8 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
             }
         }
         
-        # Log for debugging
-        logger.info(f"Ollama Generate API - Model: {model}")
-        logger.info(f"System prompt length: {len(system_prompt)} characters")
+        logger.info(f"Ollama Generate API - Model: {model_name}")
+        logger.info(f"System prompt length: {len(prompt)} characters")
         logger.info(f"User message: {user_message}")
         
         response = http_session.post(
@@ -576,16 +656,34 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
         )
         response.raise_for_status()
         data = response.json()
-        
-        return data.get('response', 'Error: No response from local model')
+        return True, data.get('response', 'Error: No response from local model')
+    
+    # Try primary model first (custom models have personality baked in)
+    try:
+        success, response = try_model(model, system_prompt)
+        return response
     except Exception as e:
-        logger.error(f"Ollama API error: {e}")
+        logger.warning(f"Primary model {model} failed: {e}")
+        
+        # Try fallback if different from primary
+        if model != FALLBACK_OLLAMA_MODEL:
+            try:
+                logger.info(f"Trying fallback model: {FALLBACK_OLLAMA_MODEL}")
+                # CRITICAL: Use full system prompt for fallback - generic models need personality!
+                fallback_prompt = fallback_system_prompt if fallback_system_prompt else system_prompt
+                logger.info(f"Fallback using {'full' if fallback_system_prompt else 'original'} system prompt")
+                success, response = try_model(FALLBACK_OLLAMA_MODEL, fallback_prompt)
+                return response
+            except Exception as e2:
+                logger.error(f"Fallback model also failed: {e2}")
+        
         return f"Error calling local Ollama: {str(e)}"
 
 
 def call_claude_api(prompt: str, system_prompt: str = "") -> str:
     """Call Claude API for complex reasoning"""
     if not ANTHROPIC_API_KEY:
+        logger.error("Claude API called but ANTHROPIC_API_KEY not configured")
         return "Error: ANTHROPIC_API_KEY not configured"
     
     try:
@@ -615,14 +713,24 @@ def call_claude_api(prompt: str, system_prompt: str = "") -> str:
         data = response.json()
         if "content" in data and len(data["content"]) > 0:
             return data["content"][0]["text"]
+        
+        logger.error("Claude API returned unexpected response format")
         return "Error: Unexpected Claude response format"
+    except requests.exceptions.Timeout:
+        logger.error("Claude API request timed out")
+        return "Error: Claude API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Claude API request failed: {type(e).__name__}")
+        return "Error: Claude API request failed"
     except Exception as e:
-        return f"Error calling Claude API: {str(e)}"
+        logger.error(f"Unexpected error calling Claude API: {type(e).__name__}")
+        return "Error calling Claude API"
 
 
 def call_grok_api(prompt: str, system_prompt: str = "") -> str:
     """Call Grok API for research/real-time info"""
     if not XAI_API_KEY:
+        logger.error("Grok API called but XAI_API_KEY not configured")
         return "Error: XAI_API_KEY not configured"
     
     try:
@@ -653,20 +761,36 @@ def call_grok_api(prompt: str, system_prompt: str = "") -> str:
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"]
+        
+        logger.error("Grok API returned unexpected response format")
         return "Error: Unexpected Grok response format"
+    except requests.exceptions.Timeout:
+        logger.error("Grok API request timed out")
+        return "Error: Grok API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Grok API request failed: {type(e).__name__}")
+        return "Error: Grok API request failed"
     except Exception as e:
-        return f"Error calling Grok API: {str(e)}"
+        logger.error(f"Unexpected error calling Grok API: {type(e).__name__}")
+        return "Error calling Grok API"
 
 
 def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
-    """Call Gemini API for quick lookups and document tasks"""
+    """Call Gemini API for quick lookups and document tasks
+    
+    NOTE: Gemini REST API requires API key in URL query parameter.
+    This is Google's official API design - we cannot use headers.
+    Key is only exposed in debug logs, not in user-facing errors.
+    """
     if not GOOGLE_AI_API_KEY:
+        logger.error("Gemini API called but GOOGLE_AI_API_KEY not configured")
         return "Error: GOOGLE_AI_API_KEY not configured"
     
     try:
         # Gemini doesn't have separate system role, so prepend system_prompt to prompt if provided
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
         
+        # Gemini API requires key as query parameter (per Google's API design)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_AI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
         
@@ -676,9 +800,18 @@ def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
         
         if "candidates" in data and len(data["candidates"]) > 0:
             return data["candidates"][0]["content"]["parts"][0]["text"]
+        
+        logger.error("Gemini API returned unexpected response format")
         return "Error: Unexpected Gemini response format"
+    except requests.exceptions.Timeout:
+        logger.error("Gemini API request timed out")
+        return "Error: Gemini API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Gemini API request failed: {type(e).__name__}")
+        return "Error: Gemini API request failed"
     except Exception as e:
-        return f"Error calling Gemini API: {str(e)}"
+        logger.error(f"Unexpected error calling Gemini API: {type(e).__name__}")
+        return "Error calling Gemini API"
 
 
 # =============================================================================
@@ -739,6 +872,9 @@ def mem0_search_memories(query: str, limit: int = 5) -> list:
         response.raise_for_status()
         
         data = response.json()
+        # Handle both list (new API) and dict (old API) response formats
+        if isinstance(data, list):
+            return data
         return data.get("results", [])
     except Exception as e:
         logger.error(f"Mem0 search error: {e}")
@@ -761,6 +897,9 @@ def mem0_get_all_memories() -> list:
         response.raise_for_status()
         
         data = response.json()
+        # Handle both list (new API) and dict (old API) response formats
+        if isinstance(data, list):
+            return data
         return data.get("results", [])
     except Exception as e:
         logger.error(f"Mem0 get all error: {e}")
@@ -774,9 +913,9 @@ def mem0_get_all_memories() -> list:
 def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str) -> None:
     """Internal synchronous function for memory storage"""
     memory_text = f"User: {user_message}\nJessica: {jessica_response}"
-    # Use SHA256 + timestamp for collision-resistant IDs
+    # Use full SHA256 hash + timestamp for collision-resistant IDs
     timestamp = str(time.time())
-    memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()[:32]
+    memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()
     
     # Store in local ChromaDB
     try:
@@ -831,7 +970,15 @@ def recall_memory_dual(query: str) -> Dict[str, List[str]]:
     
     try:
         cloud_memories = mem0_search_memories(query, limit=3)
-        context["cloud"] = [m.get("memory", "") for m in cloud_memories]
+        # Handle different Mem0 response formats
+        cloud_texts = []
+        for m in cloud_memories:
+            if isinstance(m, str):
+                cloud_texts.append(m)
+            elif isinstance(m, dict):
+                # Try common keys: memory, text, content
+                cloud_texts.append(m.get("memory", m.get("text", m.get("content", str(m)))))
+        context["cloud"] = cloud_texts
     except Exception as e:
         logger.error(f"Mem0 recall failed: {e}")
     
@@ -844,9 +991,8 @@ def recall_memory_dual(query: str) -> Dict[str, List[str]]:
 
 @lru_cache(maxsize=1)
 def _load_master_prompt():
-    """Load and cache master prompt file"""
+    """Load and cache master prompt file (for Claude/external APIs)"""
     try:
-        # Get the directory where this script is located
         script_dir = os.path.dirname(os.path.abspath(__file__))
         prompt_path = os.path.join(script_dir, 'master_prompt.txt')
         with open(prompt_path, 'r', encoding='utf-8') as f:
@@ -856,22 +1002,49 @@ def _load_master_prompt():
         return "You are Jessica, a helpful AI assistant."
 
 
+@lru_cache(maxsize=1)
+def _load_local_prompt():
+    """Load condensed prompt for local Ollama (34B models need shorter prompts)"""
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        prompt_path = os.path.join(script_dir, 'jessica_local_prompt.txt')
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("jessica_local_prompt.txt not found, using master_prompt")
+        return _load_master_prompt()
+
+
 # =============================================================================
 # MAIN CHAT ENDPOINT
 # =============================================================================
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    # Input validation
-    if not request.json or 'message' not in request.json:
-        return jsonify({"error": "Missing 'message' field"}), 400
-    
-    data = request.json
-    user_message = data['message']
+    """Main chat endpoint with error handling"""
+    try:
+        # Input validation
+        if not request.json:
+            raise ValidationError("Request body must be JSON")
+        
+        if 'message' not in request.json:
+            raise ValidationError("Missing 'message' field")
+        
+        data = request.json
+        user_message = data['message']
+        
+        if not isinstance(user_message, str) or len(user_message.strip()) == 0:
+            raise ValidationError("Message must be a non-empty string")
     explicit_directive = data.get('provider', None)
+    jessica_mode = data.get('mode', 'default')  # default, business, etc.
     
-    # Use cached master prompt (no file I/O on every request)
-    master_prompt = _load_master_prompt()
+    # Get the appropriate model for the selected mode
+    active_model = JESSICA_MODES.get(jessica_mode, JESSICA_MODES['default'])
+    logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
+    
+    # Load prompts (cached, no file I/O on every request)
+    master_prompt = _load_master_prompt()     # Full prompt for Claude
+    local_prompt = _load_local_prompt()       # Condensed prompt for local Ollama
     
     memory_context = recall_memory_dual(user_message)
     provider, tier, reason = detect_routing_tier(user_message, explicit_directive)
@@ -896,30 +1069,51 @@ def chat():
     context_text = "".join(context_parts)
     
     # Route to appropriate provider
-    # GROK_SYSTEM_PROMPT and GEMINI_SYSTEM_PROMPT now include full master prompt embedded
+    # GROK_SYSTEM_PROMPT and GEMINI_SYSTEM_PROMPT include full personality embedded
     grok_system_prompt = f"{GROK_SYSTEM_PROMPT}{context_text}"
     gemini_system_prompt = f"{GEMINI_SYSTEM_PROMPT}{context_text}"
     gemini_user_message = f"User: {user_message}"
     
-    # For Ollama: separate system prompt (master prompt + context) from user message
-    ollama_system_prompt = f"{master_prompt}{context_text}"
+    # For Ollama: Custom "jessica" model has master_prompt baked in
+    # Only send memory context, not the full prompt (saves tokens, faster!)
+    local_ollama_prompt = context_text if context_text else ""
+    
+    # Fallback prompt for generic models (qwen2.5:32b) - they need full personality!
+    # Uses local_prompt (condensed version optimized for local models) + memory context
+    fallback_ollama_prompt = f"{local_prompt}{context_text}"
     
     provider_map = {
-        "local": lambda: call_local_ollama(ollama_system_prompt, user_message),
+        "local": lambda: call_local_ollama(local_ollama_prompt, user_message, 
+                                           model=active_model, 
+                                           fallback_system_prompt=fallback_ollama_prompt),
         "claude": lambda: call_claude_api(user_message, master_prompt + context_text),
         "grok": lambda: call_grok_api(user_message, grok_system_prompt),
         "gemini": lambda: call_gemini_api(gemini_user_message, gemini_system_prompt)
     }
     
-    response_text = provider_map.get(provider, provider_map["local"])()
-    
-    # Non-blocking memory storage
-    store_memory_dual(user_message, response_text, provider)
-    
-    return jsonify({
-        "response": response_text,
-        "routing": {"provider": provider, "tier": tier, "reason": reason}
-    })
+        response_text = provider_map.get(provider, provider_map["local"])()
+        
+        # Non-blocking memory storage
+        store_memory_dual(user_message, response_text, provider)
+        
+        return jsonify({
+            "response": response_text,
+            "routing": {"provider": provider, "tier": tier, "reason": reason},
+            "request_id": g.request_id
+        })
+    except ValidationError as e:
+        logger.warning(f"Validation error: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except (ServiceUnavailableError, ExternalAPIError) as e:
+        logger.error(f"Service error: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except Exception as e:
+        logger.error(f"Unexpected error in chat endpoint: {type(e).__name__}: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "An unexpected error occurred",
+            "error_code": "INTERNAL_ERROR",
+            "request_id": g.request_id
+        }), 500
 
 
 # =============================================================================
@@ -942,41 +1136,104 @@ def get_all_cloud_memories():
 
 @app.route('/status', methods=['GET'])
 def status():
-    """Check status of all API connections"""
+    """Health check endpoint with detailed service status"""
     api_status = {
-        "local_ollama": False,
-        "local_memory": False,
-        "claude_api": bool(ANTHROPIC_API_KEY),
-        "grok_api": bool(XAI_API_KEY),
-        "gemini_api": bool(GOOGLE_AI_API_KEY),
-        "mem0_api": bool(MEM0_API_KEY)
+        "local_ollama": {"available": False, "response_time_ms": None, "error": None},
+        "local_memory": {"available": False, "response_time_ms": None, "error": None},
+        "claude_api": {"configured": bool(ANTHROPIC_API_KEY)},
+        "grok_api": {"configured": bool(XAI_API_KEY)},
+        "gemini_api": {"configured": bool(GOOGLE_AI_API_KEY)},
+        "mem0_api": {"configured": bool(MEM0_API_KEY)},
+        "request_id": g.request_id
     }
     
+    # Check Ollama service
     try:
+        start_time = time.time()
         r = http_session.get(f"{OLLAMA_URL}/api/tags", timeout=HEALTH_CHECK_TIMEOUT)
-        api_status["local_ollama"] = r.status_code == 200
+        response_time = (time.time() - start_time) * 1000
+        api_status["local_ollama"] = {
+            "available": r.status_code == 200,
+            "response_time_ms": round(response_time, 2),
+            "error": None
+        }
     except Exception as e:
         logger.error(f"Ollama status check failed: {e}")
+        api_status["local_ollama"]["error"] = str(e)
     
+    # Check Memory service
     try:
+        start_time = time.time()
         r = http_session.get(f"{MEMORY_URL}/health", timeout=HEALTH_CHECK_TIMEOUT)
-        api_status["local_memory"] = r.status_code == 200
+        response_time = (time.time() - start_time) * 1000
+        api_status["local_memory"] = {
+            "available": r.status_code == 200,
+            "response_time_ms": round(response_time, 2),
+            "error": None
+        }
     except Exception as e:
         logger.error(f"Memory service status check failed: {e}")
+        api_status["local_memory"]["error"] = str(e)
     
     return jsonify(api_status)
 
 
+@app.route('/modes', methods=['GET'])
+def get_modes():
+    """Return available Jessica modes and their descriptions"""
+    modes_info = {
+        "available_modes": {
+            "default": {
+                "model": "jessica",
+                "description": "Core personality - general purpose battle buddy"
+            },
+            "business": {
+                "model": "jessica-business",
+                "description": "WyldePhyre operations - 4 divisions, SIK tracking, revenue focus"
+            }
+        },
+        "usage": "Include 'mode': 'business' in your chat request to switch modes"
+    }
+    return jsonify(modes_info)
+
+
 @app.route('/transcribe', methods=['POST'])
 def transcribe_audio():
-    # Input validation
-    if 'audio' not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
-    
-    files = {'audio': request.files['audio']}
-    response = http_session.post(f"{WHISPER_URL}/transcribe", files=files)
-    response.raise_for_status()
-    return response.json()
+    """Transcribe audio endpoint with error handling"""
+    try:
+        # Input validation
+        if 'audio' not in request.files:
+            raise ValidationError("No audio file provided")
+        
+        audio_file = request.files['audio']
+        if audio_file.filename == '':
+            raise ValidationError("No audio file selected")
+        
+        files = {'audio': audio_file}
+        start_time = time.time()
+        response = http_session.post(f"{WHISPER_URL}/transcribe", files=files, timeout=API_TIMEOUT)
+        response_time = (time.time() - start_time) * 1000
+        response.raise_for_status()
+        
+        result = response.json()
+        logger.info(f"Transcription completed in {response_time:.2f}ms")
+        return jsonify({**result, "request_id": g.request_id})
+    except ValidationError as e:
+        logger.warning(f"Validation error in transcribe: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except requests.exceptions.Timeout:
+        logger.error("Transcription service timeout")
+        raise ServiceUnavailableError("Whisper", "Transcription service timed out")
+    except requests.exceptions.ConnectionError:
+        logger.error("Transcription service connection error")
+        raise ServiceUnavailableError("Whisper", "Transcription service unavailable")
+    except Exception as e:
+        logger.error(f"Transcription failed: {e}", exc_info=True)
+        return jsonify({
+            "error": "Transcription service unavailable",
+            "error_code": "SERVICE_UNAVAILABLE",
+            "request_id": g.request_id
+        }), 503
 
 
 # =============================================================================
@@ -1022,24 +1279,37 @@ def validate_environment() -> bool:
 # =============================================================================
 
 if __name__ == '__main__':
-    print("\n" + "="*60)
-    print("JESSICA CORE v2.0 - Three-Tier Routing + Mem0")
-    print("="*60)
+    # Startup banner (also log it)
+    banner = "\n" + "="*60 + "\nJESSICA CORE v2.0 - Three-Tier Routing + Mem0\n" + "="*60
+    print(banner)
+    logger.info("Jessica Core starting up...")
     
     # Validate environment
     config_valid = validate_environment()
     
-    print(f"Claude API:     {'✓' if ANTHROPIC_API_KEY else '✗'}")
-    print(f"Grok API:       {'✓' if XAI_API_KEY else '✗'}")
-    print(f"Gemini API:     {'✓' if GOOGLE_AI_API_KEY else '✗'}")
-    print(f"Mem0 API:       {'✓' if MEM0_API_KEY else '✗'}")
-    print("="*60)
+    # Print and log configuration status
+    config_status = (
+        f"Claude API:     {'✓' if ANTHROPIC_API_KEY else '✗'}\n"
+        f"Grok API:       {'✓' if XAI_API_KEY else '✗'}\n"
+        f"Gemini API:     {'✓' if GOOGLE_AI_API_KEY else '✗'}\n"
+        f"Mem0 API:       {'✓' if MEM0_API_KEY else '✗'}\n"
+        + "="*60
+    )
+    print(config_status)
+    logger.info("API Configuration:\n" + config_status)
     
     if not config_valid:
-        print("\n⚠ WARNING: No AI providers configured!")
-        print("Set at least one of: ANTHROPIC_API_KEY, XAI_API_KEY, GOOGLE_AI_API_KEY")
-        print("Server will start but chat endpoints will fail.\n")
+        warning = (
+            "\n⚠ WARNING: No AI providers configured!\n"
+            "Set at least one of: ANTHROPIC_API_KEY, XAI_API_KEY, GOOGLE_AI_API_KEY\n"
+            "Server will start but chat endpoints will fail.\n"
+        )
+        print(warning)
+        logger.warning(warning)
     else:
-        print("\n✓ Configuration valid - at least one provider available\n")
+        success = "\n✓ Configuration valid - at least one provider available\n"
+        print(success)
+        logger.info(success)
     
+    logger.info("Starting Flask server on 0.0.0.0:8000")
     app.run(host='0.0.0.0', port=8000)

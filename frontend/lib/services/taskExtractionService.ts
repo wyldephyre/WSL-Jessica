@@ -1,0 +1,98 @@
+import { env } from '@/lib/config/env';
+import { db } from '@/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { Groq } from 'groq-sdk';
+
+interface ExtractedTask {
+  title: string;
+  description?: string;
+  dueDate?: string;
+  priority?: 'high' | 'medium' | 'low';
+  category?: string;
+}
+
+/**
+ * Extract tasks from transcription using Groq
+ */
+export async function extractAndSaveWithGroq(transcription: string): Promise<{
+  tasks: ExtractedTask[];
+  events: any[];
+}> {
+  if (!env.GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY not configured');
+  }
+
+  const groq = new Groq({
+    apiKey: env.GROQ_API_KEY,
+  });
+
+  // Prompt for task extraction
+  const prompt = `Extract tasks and events from this transcription. Return JSON with "tasks" and "events" arrays.
+
+Transcription:
+${transcription}
+
+Return JSON format:
+{
+  "tasks": [
+    {
+      "title": "Task title",
+      "description": "Optional description",
+      "dueDate": "YYYY-MM-DD or null",
+      "priority": "high|medium|low",
+      "category": "Optional category"
+    }
+  ],
+  "events": [
+    {
+      "title": "Event title",
+      "startTime": "ISO 8601 datetime",
+      "endTime": "ISO 8601 datetime",
+      "location": "Optional location"
+    }
+  ]
+}`;
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a task extraction assistant. Extract tasks and calendar events from transcriptions. Always return valid JSON.',
+        },
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      model: 'llama-3.1-70b-versatile',
+      response_format: { type: 'json_object' },
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No response from Groq');
+    }
+
+    const parsed = JSON.parse(content);
+    const tasks = parsed.tasks || [];
+    const events = parsed.events || [];
+
+    // Save tasks to Firestore
+    const savePromises = tasks.map((task: ExtractedTask) =>
+      addDoc(collection(db, 'tasks'), {
+        ...task,
+        completed: false,
+        createdAt: serverTimestamp(),
+      })
+    );
+
+    await Promise.all(savePromises);
+
+    return { tasks, events };
+  } catch (error) {
+    console.error('Task extraction error:', error);
+    throw error;
+  }
+}
+

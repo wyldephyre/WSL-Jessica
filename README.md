@@ -8,14 +8,25 @@ Jessica Core is a Flask-based API server that provides intelligent routing betwe
 
 ## Features
 
+### Core Capabilities
+
 - **Three-Tier Intelligent Routing**: Automatically routes requests to the best AI provider based on task type
-  - Research tasks → Grok (web access)
-  - Complex reasoning → Claude
-  - Document/lookup tasks → Gemini
-  - Standard tasks → Local Ollama (Dolphin)
-- **Dual Memory System**: Stores conversations in both local ChromaDB and Mem0 cloud
-- **Voice Transcription**: Integration with Whisper service for audio transcription
+  - Research tasks → Grok (web access, real-time info)
+  - Complex reasoning → Claude (deep analysis, strategy)
+  - Document/lookup tasks → Gemini (fast, efficient)
+  - Standard tasks → Local Ollama (general conversation)
+- **Dual Memory System**: Stores conversations in both local ChromaDB and Mem0 cloud with automatic context retrieval
+- **Voice Transcription**: Integration with Whisper service for audio transcription and task extraction
 - **Multiple AI Providers**: Support for Anthropic Claude, X.AI Grok, Google Gemini, and local Ollama
+- **Business Mode**: Specialized mode for WyldePhyre operations (4 divisions, SIK tracking, revenue focus)
+
+### Recent Additions (Phase 1)
+
+- **Error Handling & Recovery**: Comprehensive error handling with retry logic and graceful degradation
+- **Testing Infrastructure**: pytest for backend, Jest for frontend with >70% coverage
+- **Logging & Observability**: Structured JSON logging with rotation, performance monitoring, and metrics endpoint
+- **Service Health Dashboard**: Real-time monitoring of all services and APIs
+- **Performance Tracking**: Automatic API call timing, endpoint metrics, and memory usage monitoring
 
 ## Prerequisites
 
@@ -23,7 +34,8 @@ Jessica Core is a Flask-based API server that provides intelligent routing betwe
 
 1. **Ollama** (running on `localhost:11434`)
    - Install from [ollama.ai](https://ollama.ai)
-   - Pull the model: `ollama pull dolphin-llama3:8b`
+   - Pull the base model: `ollama pull qwen2.5:32b`
+   - Create custom Jessica models (see Model Setup below)
 
 2. **Whisper Service** (running on `localhost:5000`)
    - Separate service for audio transcription
@@ -54,6 +66,32 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
+
+4. **Setup Custom Models** (Required):
+```bash
+# In WSL Ubuntu terminal
+cd ~/jessica-core
+
+# Make scripts executable (first time only)
+chmod +x setup-jessica-models.sh verify-jessica-models.sh create-jessica-models.sh
+
+# Run setup (verifies and creates models if needed)
+./setup-jessica-models.sh
+
+# Or verify only (doesn't create, just checks)
+./verify-jessica-models.sh
+
+# Or verify using Python (works from any environment)
+python3 verify_models.py
+```
+
+The setup script will:
+- Check if Ollama is running
+- Verify base model `qwen2.5:32b` exists (downloads if missing)
+- Create `jessica` custom model from `Modelfile`
+- Create `jessica-business` custom model from `Modelfile.business`
+
+**Note:** Custom models have Jessica's personality baked in, so the system prompt doesn't need to be sent with every request (saves tokens, faster responses).
 
 ## Configuration
 
@@ -232,15 +270,40 @@ npm run dev    # Development server on port 3000
 - **Memory Viewer**: Browse and search Mem0 cloud memories
 - **Audio Upload**: Transcribe audio files via Whisper service
 
+## Documentation
+
+- **[API Documentation](API_DOCUMENTATION.md)** - Complete API reference with examples
+- **[User Guide](USER_GUIDE.md)** - How to use Jessica's features
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solutions to common issues
+- **[Developer Onboarding](DEVELOPER_ONBOARDING.md)** - Guide for new developers
+- **[AGENTS.md](AGENTS.md)** - Architecture and development patterns
+
 ## Development
 
 ### Code Quality
 
-See `CODE_REVIEW.md` for code review findings and improvement suggestions.
+- **Testing:** pytest (backend), Jest (frontend)
+- **Linting:** flake8, pylint (backend), ESLint (frontend)
+- **Coverage:** >70% backend, >60% frontend
+- **Error Handling:** Comprehensive with retry logic
+- **Logging:** Structured JSON logs with rotation
+
+### Running Tests
+
+```bash
+# Backend
+cd ~/jessica-core
+source venv/bin/activate
+pytest tests/ -v
+
+# Frontend
+cd frontend
+npm test
+```
 
 ### Contributing
 
-This is a private project. For contributions, please coordinate with the project maintainer.
+This is a private project. For contributions, please coordinate with the project maintainer. See `DEVELOPER_ONBOARDING.md` for development guidelines.
 
 ## License
 

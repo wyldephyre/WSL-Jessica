@@ -1,23 +1,33 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { Providers } from "@/components/Providers";
 
+// Configure Geist Sans font with CSS variable
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+// Configure Geist Mono font with CSS variable
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+// Application metadata
 export const metadata: Metadata = {
-  title: "Jessica - Cognitive Prosthetic",
-  description: "Battle buddy AI for disabled veterans. For the forgotten 99%, we rise.",
+  title: "Jessica AI - Cognitive Prosthetic",
+  description: "Personal Cognitive Prosthetic for Disabled Veterans",
 };
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors rounded-md hover:bg-zinc-800"
-    >
-      {children}
-    </Link>
-  );
-}
-
+/**
+ * Root Layout Component
+ * 
+ * Main layout wrapper with persistent sidebar navigation.
+ * Implements Martin AI-inspired design with amber accents.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,29 +35,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased min-h-screen bg-[#0a0a0a]">
-        {/* Navigation */}
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-zinc-800">
-          <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">J</span>
-              </div>
-              <span className="font-semibold text-white">Jessica</span>
-            </Link>
-            
-            <div className="flex items-center gap-1">
-              <NavLink href="/">Chat</NavLink>
-              <NavLink href="/status">Status</NavLink>
-              <NavLink href="/memory">Memory</NavLink>
-            </div>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <Providers>
+          <div className="flex min-h-screen bg-[#0f0f0f]">
+            <Sidebar />
+            <main className="flex-1 overflow-auto">
+              {children}
+            </main>
           </div>
-        </nav>
-
-        {/* Main content */}
-        <main className="pt-14">
-          {children}
-        </main>
+        </Providers>
       </body>
     </html>
   );

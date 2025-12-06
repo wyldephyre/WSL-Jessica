@@ -1,0 +1,95 @@
+# Factory Droid Configuration for Jessica AI
+# Cognitive Prosthetic for Disabled Veterans
+
+review:
+  guidelines:
+    # ===========================================
+    # BACKEND PYTHON (WSL)
+    # ===========================================
+    - path: "*.py"
+      guideline: |
+        Check for:
+        - Proper error handling (no bare except clauses)
+        - Proper logging instead of print statements
+        - Type hints on all functions
+        - Input validation on Flask endpoints
+        - Security: no API keys in code, sanitized error messages
+        - Connection pooling and timeout handling
+
+    - path: "jessica_core.py"
+      guideline: |
+        This is the main orchestration server. Review for:
+        - Three-tier AI routing logic correctness
+        - Memory system (ChromaDB + Mem0) integration
+        - API endpoint security and validation
+        - Token efficiency (ADHD accommodation)
+        - Proper fallback handling between models
+      context_document_path: "AGENTS.md"
+
+    # ===========================================
+    # FRONTEND TYPESCRIPT/REACT
+    # ===========================================
+    - path: "frontend/**/*.ts"
+      guideline: |
+        Check for:
+        - Proper TypeScript typing (no 'any' types)
+        - Proper error handling in API calls
+        - Environment variable usage (no hardcoded secrets)
+        - Consistent API client patterns
+
+    - path: "frontend/**/*.tsx"
+      guideline: |
+        Check for:
+        - React best practices (proper hook usage, no memory leaks)
+        - Accessibility (ARIA labels, keyboard navigation)
+        - Error boundaries
+        - Loading states and error states
+        - ADHD-friendly UI (clear, focused, not overwhelming)
+
+    - path: "D:/App Development/jessica-ai/frontend/**/*.ts"
+      guideline: |
+        Windows-side frontend TypeScript files. Check for:
+        - Proper TypeScript typing (no 'any' types)
+        - API client implementations match backend contracts
+        - Proper error handling
+        - No hardcoded URLs or secrets
+
+    - path: "D:/App Development/jessica-ai/frontend/**/*.tsx"
+      guideline: |
+        Windows-side frontend React components. Check for:
+        - React hooks best practices
+        - Component composition patterns
+        - State management patterns
+        - UI/UX for cognitive accessibility
+
+    # ===========================================
+    # CONFIGURATION & DEPENDENCIES
+    # ===========================================
+    - path: "requirements.txt"
+      guideline: |
+        Check for:
+        - Pinned versions for reproducibility
+        - No unnecessary dependencies
+        - Security vulnerabilities in packages
+
+    - path: "**/package.json"
+      guideline: |
+        Check for:
+        - Pinned or appropriate version ranges
+        - No unnecessary dependencies
+        - Scripts are properly defined
+
+    # ===========================================
+    # GENERAL GUIDELINES
+    # ===========================================
+    - path: "*"
+      guideline: |
+        Follow ADHD-aware development patterns:
+        - Clear, descriptive naming
+        - Single responsibility principle
+        - No unnecessary complexity
+        - Comments explain WHY, not WHAT
+        - Token efficiency in AI responses
+        - Mission alignment: "For the forgotten 99%, we rise"
+      context_document_path: "AGENTS.md"
+
