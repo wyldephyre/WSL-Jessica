@@ -18,46 +18,36 @@ export interface MemorySearchOptions {
 }
 
 /**
- * Get Mem0 memory client (simplified - uses API directly)
+ * DEPRECATED: Direct memory client removed for security
+ * All memory operations now go through backend routes
  */
 export function getMemoryClient() {
-  return {
-    apiKey: env.MEM0_API_KEY,
-    baseUrl: 'https://api.mem0.ai/v1',
-    userId: 'PhyreBug', // Default user ID
-  };
+  throw new Error('Direct memory client deprecated for security. Use backend routes.');
 }
 
 /**
- * Search memories using Mem0 API
+ * Search memories via backend proxy (SECURITY FIX)
  */
 export async function searchMemories(
   query: string,
   options: MemorySearchOptions
 ): Promise<Memory[]> {
-  if (!env.MEM0_API_KEY) {
-    console.warn('MEM0_API_KEY not configured');
-    return [];
-  }
-
   try {
-    const client = getMemoryClient();
-    const response = await fetch(`${client.baseUrl}/memories/search/`, {
+    const response = await fetch('/api/memory/search', {
       method: 'POST',
       headers: {
-        'Authorization': `Token ${client.apiKey}`,
         'Content-Type': 'application/json',
+        'X-User-ID': options.user_id,
       },
       body: JSON.stringify({
         query,
-        user_id: options.user_id || client.userId,
         limit: options.limit || 10,
         ...(options.context && { context: options.context }),
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Mem0 API error: ${response.statusText}`);
+      throw new Error(`Memory search error: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -69,23 +59,17 @@ export async function searchMemories(
 }
 
 /**
- * Add a new memory
+ * Add a new memory via backend proxy (SECURITY FIX)
  */
 export async function addMemory(memory: Memory): Promise<Memory> {
-  if (!env.MEM0_API_KEY) {
-    throw new Error('MEM0_API_KEY not configured');
-  }
-
-  const client = getMemoryClient();
-  const response = await fetch(`${client.baseUrl}/memories/`, {
+  const response = await fetch('/api/memory/add', {
     method: 'POST',
     headers: {
-      'Authorization': `Token ${client.apiKey}`,
       'Content-Type': 'application/json',
+      'X-User-ID': memory.user_id,
     },
     body: JSON.stringify({
-      messages: [{ role: 'user', content: memory.content }],
-      user_id: memory.user_id || client.userId,
+      content: memory.content,
       ...(memory.context && { context: memory.context }),
       ...(memory.metadata && { metadata: memory.metadata }),
     }),
@@ -99,33 +83,24 @@ export async function addMemory(memory: Memory): Promise<Memory> {
 }
 
 /**
- * Get all memories for a user
+ * Get all memories for a user via backend proxy (SECURITY FIX)
  */
 export async function getAllMemories(
   userId: string,
   context?: MemoryContext
 ): Promise<Memory[]> {
-  if (!env.MEM0_API_KEY) {
-    console.warn('MEM0_API_KEY not configured');
-    return [];
-  }
-
   try {
-    const client = getMemoryClient();
-    const url = new URL(`${client.baseUrl}/memories/`);
-    url.searchParams.set('user_id', userId || client.userId);
-    if (context) {
-      url.searchParams.set('context', context);
-    }
-
-    const response = await fetch(url.toString(), {
+    const response = await fetch('/api/memory/all', {
+      method: 'GET',
       headers: {
-        'Authorization': `Token ${client.apiKey}`,
+        'Content-Type': 'application/json',
+        'X-User-ID': userId,
+        ...(context && { 'X-Context': context }),
       },
     });
 
     if (!response.ok) {
-      throw new Error(`Mem0 API error: ${response.statusText}`);
+      throw new Error(`Memory error: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -137,23 +112,19 @@ export async function getAllMemories(
 }
 
 /**
- * Update an existing memory
+ * Update an existing memory via backend proxy (SECURITY FIX)
  */
 export async function updateMemory(
   id: string,
   content: string,
+  userId: string,
   metadata?: Record<string, any>
 ): Promise<Memory> {
-  if (!env.MEM0_API_KEY) {
-    throw new Error('MEM0_API_KEY not configured');
-  }
-
-  const client = getMemoryClient();
-  const response = await fetch(`${client.baseUrl}/memories/${id}/`, {
+  const response = await fetch(`/api/memory/${id}`, {
     method: 'PUT',
     headers: {
-      'Authorization': `Token ${client.apiKey}`,
       'Content-Type': 'application/json',
+      'X-User-ID': userId,
     },
     body: JSON.stringify({
       content,
@@ -169,18 +140,14 @@ export async function updateMemory(
 }
 
 /**
- * Delete a memory
+ * Delete a memory via backend proxy (SECURITY FIX)
  */
-export async function deleteMemory(id: string): Promise<void> {
-  if (!env.MEM0_API_KEY) {
-    throw new Error('MEM0_API_KEY not configured');
-  }
-
-  const client = getMemoryClient();
-  const response = await fetch(`${client.baseUrl}/memories/${id}/`, {
+export async function deleteMemory(id: string, userId: string): Promise<void> {
+  const response = await fetch(`/api/memory/${id}`, {
     method: 'DELETE',
     headers: {
-      'Authorization': `Token ${client.apiKey}`,
+      'Content-Type': 'application/json',
+      'X-User-ID': userId,
     },
   });
 
@@ -190,19 +157,23 @@ export async function deleteMemory(id: string): Promise<void> {
 }
 
 /**
- * Add conversation to memory
+ * Add conversation to memory (SECURITY FIX: Updated signature to match actual usage)
  */
 export async function addConversation(
-  userMessage: string,
-  assistantMessage: string,
+  messages: Array<{ role: string; content: string }>,
   userId: string,
+  context?: MemoryContext,
   metadata?: Record<string, any>
 ): Promise<void> {
-  const content = `User: ${userMessage}\nAssistant: ${assistantMessage}`;
+  // Extract user and assistant messages from the array
+  const userMsg = messages.find(m => m.role === 'user')?.content || '';
+  const assistantMsg = messages.find(m => m.role === 'assistant')?.content || '';
+  
+  const content = `User: ${userMsg}\nAssistant: ${assistantMsg}`;
   await addMemory({
     content,
     user_id: userId,
-    context: 'personal', // Use 'personal' as default context for conversations
+    context: context || 'personal', // Use provided context or default to 'personal'
     metadata: {
       ...metadata,
       type: 'conversation',
@@ -211,16 +182,19 @@ export async function addConversation(
 }
 
 /**
- * Add conversation to multiple contexts
+ * Add conversation to multiple contexts (SECURITY FIX: Updated signature to match actual usage)
  */
 export async function addConversationToMultipleContexts(
-  userMessage: string,
-  assistantMessage: string,
+  messages: Array<{ role: string; content: string }>,
   userId: string,
   contexts: MemoryContext[],
   metadata?: Record<string, any>
 ): Promise<void> {
-  const content = `User: ${userMessage}\nAssistant: ${assistantMessage}`;
+  // Extract user and assistant messages from the array
+  const userMsg = messages.find(m => m.role === 'user')?.content || '';
+  const assistantMsg = messages.find(m => m.role === 'assistant')?.content || '';
+  
+  const content = `User: ${userMsg}\nAssistant: ${assistantMsg}`;
   
   await Promise.all(
     contexts.map((context) =>

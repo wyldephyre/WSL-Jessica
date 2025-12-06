@@ -1,6 +1,4 @@
-import { getAnthropicClient } from './anthropic';
-import { getGeminiModel } from './gemini';
-import { getGrokClient } from './grok';
+// SECURITY FIX: Removed direct API client imports - all calls now go through backend routes
 
 export type AIProvider = 'claude' | 'gemini' | 'grok' | 'local';
 
@@ -10,59 +8,87 @@ export interface AIProviderResponse {
 }
 
 /**
- * Call AI provider based on provider type
+ * Call AI provider via backend routes (SECURITY FIX: No more direct API access)
  */
 export async function callAIProvider(
   provider: AIProvider,
   message: string,
-  systemPrompt?: string
+  systemPrompt?: string,
+  userId: string = 'default-user'
 ): Promise<AIProviderResponse> {
+  // SECURITY FIX: All providers now call backend routes instead of using API keys directly
+  const basePayload = {
+    message,
+    user_id: userId,
+    ...(systemPrompt && { systemPrompt }),
+  };
+
   switch (provider) {
     case 'claude': {
-      const client = getAnthropicClient();
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2048,
-        system: systemPrompt || '',
-        messages: [
-          {
-            role: 'user',
-            content: message,
-          },
-        ],
+      const response = await fetch('/api/chat/claude', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+        body: JSON.stringify(basePayload),
       });
-      const content = response.content[0];
+
+      if (!response.ok) {
+        throw new Error(`Claude API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
       return {
-        content: content.type === 'text' ? content.text : '',
+        content: data.message || '',
         provider: 'claude',
       };
     }
 
     case 'gemini': {
-      const model = getGeminiModel();
-      const prompt = systemPrompt
-        ? `${systemPrompt}\n\nUser: ${message}`
-        : message;
-      const result = await model.generateContent(prompt);
-      const response = result.response;
+      const response = await fetch('/api/chat/gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+        body: JSON.stringify(basePayload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Gemini API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
       return {
-        content: response.text(),
+        content: data.message || '',
         provider: 'gemini',
       };
     }
 
     case 'grok': {
-      const client = getGrokClient();
-      // Grok API implementation would go here
-      // For now, return a placeholder
+      const response = await fetch('/api/chat/grok', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+        body: JSON.stringify(basePayload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Grok API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
       return {
-        content: 'Grok API integration pending',
+        content: data.message || '',
         provider: 'grok',
       };
     }
 
     case 'local': {
-      // Call local backend (Jessica Core)
+      // Call Jessica Core backend
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: {
@@ -70,6 +96,7 @@ export async function callAIProvider(
         },
         body: JSON.stringify({
           message,
+          user_id: userId,
           provider: 'local',
         }),
       });
