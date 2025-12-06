@@ -1067,61 +1067,62 @@ def chat():
         # SECURITY FIX: Add input length limits
         if len(user_message) > 10000:  # 10K character limit
             raise ValidationError("Message too long (max 10,000 characters)")
-    explicit_directive = data.get('provider', None)
-    jessica_mode = data.get('mode', 'default')  # default, business, etc.
+            
+        explicit_directive = data.get('provider', None)
+        jessica_mode = data.get('mode', 'default')  # default, business, etc.
+        
+        # Get the appropriate model for the selected mode
+        active_model = JESSICA_MODES.get(jessica_mode, JESSICA_MODES['default'])
+        logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
+        
+        # Load prompts (cached, no file I/O on every request)
+        master_prompt = _load_master_prompt()     # Full prompt for Claude
+        local_prompt = _load_local_prompt()       # Condensed prompt for local Ollama
+        
+        memory_context = recall_memory_dual(user_message)
+        provider, tier, reason = detect_routing_tier(user_message, explicit_directive)
     
-    # Get the appropriate model for the selected mode
-    active_model = JESSICA_MODES.get(jessica_mode, JESSICA_MODES['default'])
-    logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
-    
-    # Load prompts (cached, no file I/O on every request)
-    master_prompt = _load_master_prompt()     # Full prompt for Claude
-    local_prompt = _load_local_prompt()       # Condensed prompt for local Ollama
-    
-    memory_context = recall_memory_dual(user_message)
-    provider, tier, reason = detect_routing_tier(user_message, explicit_directive)
-    
-    # Optimized context building using list join
-    context_parts = []
-    if memory_context["local"] or memory_context["cloud"]:
-        context_parts.append("\n\nRelevant context from memory:\n")
-        for mem in memory_context["local"][:2]:
-            if isinstance(mem, str):
-                context_parts.append(f"- {mem[:MEMORY_TRUNCATE_LENGTH]}...\n")
-            else:
-                # Handle non-string memory items (shouldn't happen, but be safe)
-                logger.warning(f"Unexpected memory type in local context: {type(mem)}")
-        for mem in memory_context["cloud"][:2]:
-            if isinstance(mem, str):
-                context_parts.append(f"- {mem[:MEMORY_TRUNCATE_LENGTH]}...\n")
-            else:
-                # Handle non-string memory items (shouldn't happen, but be safe)
-                logger.warning(f"Unexpected memory type in cloud context: {type(mem)}")
-    
-    context_text = "".join(context_parts)
-    
-    # Route to appropriate provider
-    # GROK_SYSTEM_PROMPT and GEMINI_SYSTEM_PROMPT include full personality embedded
-    grok_system_prompt = f"{GROK_SYSTEM_PROMPT}{context_text}"
-    gemini_system_prompt = f"{GEMINI_SYSTEM_PROMPT}{context_text}"
-    gemini_user_message = f"User: {user_message}"
-    
-    # For Ollama: Custom "jessica" model has master_prompt baked in
-    # Only send memory context, not the full prompt (saves tokens, faster!)
-    local_ollama_prompt = context_text if context_text else ""
-    
-    # Fallback prompt for generic models (qwen2.5:32b) - they need full personality!
-    # Uses local_prompt (condensed version optimized for local models) + memory context
-    fallback_ollama_prompt = f"{local_prompt}{context_text}"
-    
-    provider_map = {
-        "local": lambda: call_local_ollama(local_ollama_prompt, user_message, 
-                                           model=active_model, 
-                                           fallback_system_prompt=fallback_ollama_prompt),
-        "claude": lambda: call_claude_api(user_message, master_prompt + context_text),
-        "grok": lambda: call_grok_api(user_message, grok_system_prompt),
-        "gemini": lambda: call_gemini_api(gemini_user_message, gemini_system_prompt)
-    }
+        # Optimized context building using list join
+        context_parts = []
+        if memory_context["local"] or memory_context["cloud"]:
+            context_parts.append("\n\nRelevant context from memory:\n")
+            for mem in memory_context["local"][:2]:
+                if isinstance(mem, str):
+                    context_parts.append(f"- {mem[:MEMORY_TRUNCATE_LENGTH]}...\n")
+                else:
+                    # Handle non-string memory items (shouldn't happen, but be safe)
+                    logger.warning(f"Unexpected memory type in local context: {type(mem)}")
+            for mem in memory_context["cloud"][:2]:
+                if isinstance(mem, str):
+                    context_parts.append(f"- {mem[:MEMORY_TRUNCATE_LENGTH]}...\n")
+                else:
+                    # Handle non-string memory items (shouldn't happen, but be safe)
+                    logger.warning(f"Unexpected memory type in cloud context: {type(mem)}")
+        
+        context_text = "".join(context_parts)
+        
+        # Route to appropriate provider
+        # GROK_SYSTEM_PROMPT and GEMINI_SYSTEM_PROMPT include full personality embedded
+        grok_system_prompt = f"{GROK_SYSTEM_PROMPT}{context_text}"
+        gemini_system_prompt = f"{GEMINI_SYSTEM_PROMPT}{context_text}"
+        gemini_user_message = f"User: {user_message}"
+        
+        # For Ollama: Custom "jessica" model has master_prompt baked in
+        # Only send memory context, not the full prompt (saves tokens, faster!)
+        local_ollama_prompt = context_text if context_text else ""
+        
+        # Fallback prompt for generic models (qwen2.5:32b) - they need full personality!
+        # Uses local_prompt (condensed version optimized for local models) + memory context
+        fallback_ollama_prompt = f"{local_prompt}{context_text}"
+        
+        provider_map = {
+            "local": lambda: call_local_ollama(local_ollama_prompt, user_message, 
+                                               model=active_model, 
+                                               fallback_system_prompt=fallback_ollama_prompt),
+            "claude": lambda: call_claude_api(user_message, master_prompt + context_text),
+            "grok": lambda: call_grok_api(user_message, grok_system_prompt),
+            "gemini": lambda: call_gemini_api(gemini_user_message, gemini_system_prompt)
+        }
     
         response_text = provider_map.get(provider, provider_map["local"])()
         
