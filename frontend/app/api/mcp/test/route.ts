@@ -47,9 +47,10 @@ export async function POST(request: NextRequest) {
     const { tool, method, params } = await request.json();
     
     // Ensure userId from auth is used, not from params (security)
-    if (params && typeof params === 'object' && 'userId' in params) {
-      params.userId = userId;
-    }
+    // Always ensure userId is present in params object
+    const safeParams = params && typeof params === 'object' 
+      ? { ...params, userId }
+      : { userId };
     
     if (!tool || !method) {
       return NextResponse.json({
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    const result = await mcp.useTool(tool, method, params || {});
+    const result = await mcp.useTool(tool, method, safeParams);
     
     return NextResponse.json({
       success: true,

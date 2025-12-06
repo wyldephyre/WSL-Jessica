@@ -44,7 +44,7 @@ export async function callAIProvider(
         ? `${systemPrompt}\n\nUser: ${message}`
         : message;
       const result = await model.generateContent(prompt);
-      const response = await result.response;
+      const response = result.response;
       return {
         content: response.text(),
         provider: 'gemini',

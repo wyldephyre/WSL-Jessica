@@ -84,6 +84,9 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
+    // Require authentication
+    const { userId } = await requireAuth(req);
+    
     const { id, content, metadata } = await req.json();
 
     if (!id || !content) {
@@ -106,6 +109,9 @@ export async function PUT(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
+    // Require authentication
+    const { userId } = await requireAuth(req);
+    
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 

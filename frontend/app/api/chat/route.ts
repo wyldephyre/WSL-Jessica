@@ -117,18 +117,14 @@ export async function POST(req: NextRequest) {
         const systemPrompt = `${baseSystemPrompt}\n\nA calendar event has been created. Confirm this to the user in a friendly way.`;
 
         // Call AI provider with intelligent routing
-        const response = await callAIProvider(provider, {
-          message: message + calendarConfirmation,
-          context,
-          systemPrompt,
-        });
+        const response = await callAIProvider(provider, message + calendarConfirmation, systemPrompt);
 
         // Store conversation in memory (async, non-blocking) using memory storage contexts
         if (memoryContexts.length === 1) {
           addConversation(
             [
               { role: 'user', content: message },
-              { role: 'assistant', content: response.message }
+              { role: 'assistant', content: response.content }
             ],
             userId,
             memoryContexts[0]
@@ -137,7 +133,7 @@ export async function POST(req: NextRequest) {
           addConversationToMultipleContexts(
             [
               { role: 'user', content: message },
-              { role: 'assistant', content: response.message }
+              { role: 'assistant', content: response.content }
             ],
             userId,
             memoryContexts
@@ -178,18 +174,14 @@ export async function POST(req: NextRequest) {
     const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
 
     // Call AI provider with intelligent routing
-    const response = await callAIProvider(provider, {
-      message,
-      context,
-      systemPrompt,
-    });
+    const response = await callAIProvider(provider, message, systemPrompt);
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {
       addConversation(
         [
           { role: 'user', content: message },
-          { role: 'assistant', content: response.message }
+          { role: 'assistant', content: response.content }
         ],
         userId,
         memoryContexts[0]
@@ -198,7 +190,7 @@ export async function POST(req: NextRequest) {
       addConversationToMultipleContexts(
         [
           { role: 'user', content: message },
-          { role: 'assistant', content: response.message }
+          { role: 'assistant', content: response.content }
         ],
         userId,
         memoryContexts

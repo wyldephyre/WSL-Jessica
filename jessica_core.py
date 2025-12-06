@@ -660,6 +660,7 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
 def call_claude_api(prompt: str, system_prompt: str = "") -> str:
     """Call Claude API for complex reasoning"""
     if not ANTHROPIC_API_KEY:
+        logger.error("Claude API called but ANTHROPIC_API_KEY not configured")
         return "Error: ANTHROPIC_API_KEY not configured"
     
     try:
@@ -689,14 +690,24 @@ def call_claude_api(prompt: str, system_prompt: str = "") -> str:
         data = response.json()
         if "content" in data and len(data["content"]) > 0:
             return data["content"][0]["text"]
+        
+        logger.error("Claude API returned unexpected response format")
         return "Error: Unexpected Claude response format"
+    except requests.exceptions.Timeout:
+        logger.error("Claude API request timed out")
+        return "Error: Claude API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Claude API request failed: {type(e).__name__}")
+        return "Error: Claude API request failed"
     except Exception as e:
-        return f"Error calling Claude API: {str(e)}"
+        logger.error(f"Unexpected error calling Claude API: {type(e).__name__}")
+        return "Error calling Claude API"
 
 
 def call_grok_api(prompt: str, system_prompt: str = "") -> str:
     """Call Grok API for research/real-time info"""
     if not XAI_API_KEY:
+        logger.error("Grok API called but XAI_API_KEY not configured")
         return "Error: XAI_API_KEY not configured"
     
     try:
@@ -727,20 +738,36 @@ def call_grok_api(prompt: str, system_prompt: str = "") -> str:
         data = response.json()
         if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"]
+        
+        logger.error("Grok API returned unexpected response format")
         return "Error: Unexpected Grok response format"
+    except requests.exceptions.Timeout:
+        logger.error("Grok API request timed out")
+        return "Error: Grok API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Grok API request failed: {type(e).__name__}")
+        return "Error: Grok API request failed"
     except Exception as e:
-        return f"Error calling Grok API: {str(e)}"
+        logger.error(f"Unexpected error calling Grok API: {type(e).__name__}")
+        return "Error calling Grok API"
 
 
 def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
-    """Call Gemini API for quick lookups and document tasks"""
+    """Call Gemini API for quick lookups and document tasks
+    
+    NOTE: Gemini REST API requires API key in URL query parameter.
+    This is Google's official API design - we cannot use headers.
+    Key is only exposed in debug logs, not in user-facing errors.
+    """
     if not GOOGLE_AI_API_KEY:
+        logger.error("Gemini API called but GOOGLE_AI_API_KEY not configured")
         return "Error: GOOGLE_AI_API_KEY not configured"
     
     try:
         # Gemini doesn't have separate system role, so prepend system_prompt to prompt if provided
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
         
+        # Gemini API requires key as query parameter (per Google's API design)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_AI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
         
@@ -750,9 +777,18 @@ def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
         
         if "candidates" in data and len(data["candidates"]) > 0:
             return data["candidates"][0]["content"]["parts"][0]["text"]
+        
+        logger.error("Gemini API returned unexpected response format")
         return "Error: Unexpected Gemini response format"
+    except requests.exceptions.Timeout:
+        logger.error("Gemini API request timed out")
+        return "Error: Gemini API request timed out"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Gemini API request failed: {type(e).__name__}")
+        return "Error: Gemini API request failed"
     except Exception as e:
-        return f"Error calling Gemini API: {str(e)}"
+        logger.error(f"Unexpected error calling Gemini API: {type(e).__name__}")
+        return "Error calling Gemini API"
 
 
 # =============================================================================
@@ -854,9 +890,9 @@ def mem0_get_all_memories() -> list:
 def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str) -> None:
     """Internal synchronous function for memory storage"""
     memory_text = f"User: {user_message}\nJessica: {jessica_response}"
-    # Use SHA256 + timestamp for collision-resistant IDs
+    # Use full SHA256 hash + timestamp for collision-resistant IDs
     timestamp = str(time.time())
-    memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()[:32]
+    memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()
     
     # Store in local ChromaDB
     try:
@@ -968,6 +1004,9 @@ def chat():
     
     data = request.json
     user_message = data['message']
+    
+    if not isinstance(user_message, str) or len(user_message.strip()) == 0:
+        return jsonify({"error": "Message must be a non-empty string"}), 400
     explicit_directive = data.get('provider', None)
     jessica_mode = data.get('mode', 'default')  # default, business, etc.
     
@@ -1105,10 +1144,18 @@ def transcribe_audio():
     if 'audio' not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
     
-    files = {'audio': request.files['audio']}
-    response = http_session.post(f"{WHISPER_URL}/transcribe", files=files)
-    response.raise_for_status()
-    return response.json()
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({"error": "No audio file selected"}), 400
+    
+    try:
+        files = {'audio': audio_file}
+        response = http_session.post(f"{WHISPER_URL}/transcribe", files=files, timeout=API_TIMEOUT)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Transcription failed: {e}")
+        return jsonify({"error": "Transcription service unavailable"}), 503
 
 
 # =============================================================================
