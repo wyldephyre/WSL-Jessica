@@ -38,7 +38,12 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend access
+
+# SECURITY FIX: Restrict CORS to specific origins only
+CORS(app, 
+     origins=["http://localhost:3000", "https://localhost:3000"],  # Frontend dev server
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-User-ID"])  # Required headers
 
 # Request ID middleware
 @app.before_request
@@ -69,7 +74,9 @@ MEM0_API_KEY = os.getenv("MEM0_API_KEY")
 # MEM0 CONFIGURATION
 # =============================================================================
 MEM0_BASE_URL = "https://api.mem0.ai/v1"
-MEM0_USER_ID = "PhyreBug"
+# SECURITY FIX: Remove hardcoded user ID - now passed dynamically per request
+# Legacy hardcoded ID kept as fallback for development only
+DEFAULT_MEM0_USER_ID = "PhyreBug"
 
 # =============================================================================
 # CONSTANTS
@@ -818,10 +825,13 @@ def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
 # MEM0 FUNCTIONS
 # =============================================================================
 
-def mem0_add_memory(content: str, metadata: dict = None) -> dict:
+def mem0_add_memory(content: str, user_id: str = None, metadata: dict = None) -> dict:
     """Add memory to Mem0 cloud"""
     if not MEM0_API_KEY:
         return {"error": "MEM0_API_KEY not configured"}
+    
+    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
+    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
     
     try:
         headers = {
@@ -831,7 +841,7 @@ def mem0_add_memory(content: str, metadata: dict = None) -> dict:
         
         payload = {
             "messages": [{"role": "user", "content": content}],
-            "user_id": MEM0_USER_ID
+            "user_id": effective_user_id
         }
         
         if metadata:
@@ -850,10 +860,13 @@ def mem0_add_memory(content: str, metadata: dict = None) -> dict:
         return {"error": str(e)}
 
 
-def mem0_search_memories(query: str, limit: int = 5) -> list:
+def mem0_search_memories(query: str, user_id: str = None, limit: int = 5) -> list:
     """Search memories in Mem0 cloud"""
     if not MEM0_API_KEY:
         return []
+    
+    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
+    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
     
     try:
         headers = {
@@ -861,7 +874,7 @@ def mem0_search_memories(query: str, limit: int = 5) -> list:
             "Content-Type": "application/json"
         }
         
-        payload = {"query": query, "user_id": MEM0_USER_ID, "limit": limit}
+        payload = {"query": query, "user_id": effective_user_id, "limit": limit}
         
         response = http_session.post(
             f"{MEM0_BASE_URL}/memories/search/",
@@ -910,12 +923,15 @@ def mem0_get_all_memories() -> list:
 # DUAL MEMORY SYSTEM
 # =============================================================================
 
-def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str) -> None:
+def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str, user_id: str = None) -> None:
     """Internal synchronous function for memory storage"""
     memory_text = f"User: {user_message}\nJessica: {jessica_response}"
     # Use full SHA256 hash + timestamp for collision-resistant IDs
     timestamp = str(time.time())
     memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()
+    
+    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
+    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
     
     # Store in local ChromaDB
     try:
@@ -925,7 +941,7 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
                 "id": memory_id,
                 "text": memory_text,
                 "collection": "conversations",
-                "metadata": {"provider": provider_used}
+                "metadata": {"provider": provider_used, "user_id": effective_user_id}
             },
             timeout=LOCAL_SERVICE_TIMEOUT
         )
@@ -936,18 +952,19 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
     try:
         mem0_add_memory(
             memory_text,
+            user_id=effective_user_id,
             metadata={"provider": provider_used, "source": "jessica_local"}
         )
     except Exception as e:
         logger.error(f"Mem0 store failed: {e}")
 
 
-def store_memory_dual(user_message: str, jessica_response: str, provider_used: str) -> None:
+def store_memory_dual(user_message: str, jessica_response: str, provider_used: str, user_id: str = None) -> None:
     """Store memory in both local ChromaDB and Mem0 cloud (non-blocking)"""
     # Fire and forget - don't block the response
     thread = threading.Thread(
         target=_store_memory_dual_sync,
-        args=(user_message, jessica_response, provider_used),
+        args=(user_message, jessica_response, provider_used, user_id),
         daemon=True
     )
     thread.start()
@@ -1035,6 +1052,21 @@ def chat():
         
         if not isinstance(user_message, str) or len(user_message.strip()) == 0:
             raise ValidationError("Message must be a non-empty string")
+            
+        # SECURITY FIX: Get and validate user_id
+        user_id = data.get('user_id')
+        if not user_id:
+            raise ValidationError("Missing 'user_id' field")
+        if not isinstance(user_id, str) or len(user_id) > 50:
+            raise ValidationError("Invalid user_id format")
+        # Only allow alphanumeric characters, hyphens, and underscores
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]+$', user_id):
+            raise ValidationError("user_id contains invalid characters")
+            
+        # SECURITY FIX: Add input length limits
+        if len(user_message) > 10000:  # 10K character limit
+            raise ValidationError("Message too long (max 10,000 characters)")
     explicit_directive = data.get('provider', None)
     jessica_mode = data.get('mode', 'default')  # default, business, etc.
     
@@ -1093,8 +1125,8 @@ def chat():
     
         response_text = provider_map.get(provider, provider_map["local"])()
         
-        # Non-blocking memory storage
-        store_memory_dual(user_message, response_text, provider)
+        # Non-blocking memory storage with user isolation
+        store_memory_dual(user_message, response_text, provider, user_id)
         
         return jsonify({
             "response": response_text,
