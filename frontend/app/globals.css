@@ -1,49 +1,68 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
+  /* Core colors */
+  --background: #0f0f0f;
+  --background-secondary: #141414;
   --foreground: #e5e5e5;
-  --card: #141414;
-  --card-hover: #1a1a1a;
-  --border: #262626;
-  --accent: #dc2626;
-  --accent-dim: #991b1b;
-  --success: #22c55e;
-  --warning: #eab308;
-  --error: #ef4444;
+  
+  /* Amber accent palette */
+  --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;
+  --amber-600: #d97706;
+  --amber-700: #b45309;
+  
+  /* Functional colors */
+  --accent: var(--amber-500);
+  --accent-hover: var(--amber-400);
+  --accent-muted: rgba(245, 158, 11, 0.1);
+  
+  /* Border colors */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  
+  /* Text colors */
+  --text-primary: #e5e5e5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #737373;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
-html,
+/* Base styles */
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
   background: var(--background);
   color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
 }
 
-/* Custom scrollbar */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* Focus styles */
@@ -52,85 +71,92 @@ body {
   outline-offset: 2px;
 }
 
-/* Selection */
-::selection {
-  background: var(--accent-dim);
-  color: white;
-}
-
-/* Custom animations */
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 20px 4px rgba(220, 38, 38, 0.2);
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-/* Message bubbles */
-.message-user {
-  background: linear-gradient(135deg, #1e3a5f 0%, #1a2e4a 100%);
-  border: 1px solid #2d4a6f;
-}
-
-.message-jessica {
-  background: linear-gradient(135deg, #1f1f1f 0%, #171717 100%);
-  border: 1px solid #2a2a2a;
-}
-
-/* Status indicators */
-.status-online {
-  background: var(--success);
-  box-shadow: 0 0 8px var(--success);
-}
-
-.status-offline {
-  background: var(--error);
-  box-shadow: 0 0 8px var(--error);
-}
-
-/* Input styling */
-input, textarea {
-  background: var(--card);
+/* Card styles */
+.card {
+  background: var(--background-secondary);
   border: 1px solid var(--border);
-  color: var(--foreground);
+  border-radius: 12px;
 }
 
-input:focus, textarea:focus {
-  border-color: var(--accent);
+.card:hover {
+  border-color: var(--border-hover);
 }
 
-/* Button hover effects */
-.btn-primary {
-  background: var(--accent);
+/* Input styles */
+.input {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
-.btn-primary:hover {
-  background: #b91c1c;
-  transform: translateY(-1px);
+.input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.btn-primary:active {
-  transform: translateY(0);
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Button base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+/* Amber glow effect for focused elements */
+.glow-amber {
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Badge styles */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+}
+
+.badge-amber {
+  background: var(--accent-muted);
+  color: var(--amber-400);
 }

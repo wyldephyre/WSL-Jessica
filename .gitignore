@@ -68,4 +68,6 @@ dmypy.json
 # Node.js (frontend)
 node_modules/
 .next/
+coverage/
+tsconfig.tsbuildinfo
 

@@ -1,0 +1,394 @@
+/**
+ * AI Provider Factory
+ * Unified interface for all AI providers with intelligent routing
+ */
+
+import { getAnthropicClient } from './anthropic';
+import { getGrokClient } from './grok';
+import { getGeminiModel } from './gemini';
+import { MemoryContext } from '../types/memory';
+import { env } from '../config/env';
+
+export type AIProvider = 'claude' | 'grok' | 'gemini' | 'auto';
+
+export interface AIResponse {
+  message: string;
+  provider: AIProvider;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+export interface AICallOptions {
+  message: string;
+  context: MemoryContext;
+  systemPrompt?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+/**
+ * Intelligent routing: determines best provider based on message content
+ */
+function selectProvider(message: string, requestedProvider?: AIProvider): AIProvider {
+  if (requestedProvider && requestedProvider !== 'auto') {
+    return requestedProvider;
+  }
+
+  const lowerMessage = message.toLowerCase();
+
+  // Technical/coding tasks → Grok
+  if (
+    lowerMessage.includes('code') ||
+    lowerMessage.includes('debug') ||
+    lowerMessage.includes('function') ||
+    lowerMessage.includes('error') ||
+    lowerMessage.includes('bug') ||
+    lowerMessage.includes('programming')
+  ) {
+    return 'grok';
+  }
+
+  // Research/analysis tasks → Gemini
+  if (
+    lowerMessage.includes('research') ||
+    lowerMessage.includes('analyze') ||
+    lowerMessage.includes('compare') ||
+    lowerMessage.includes('explain') ||
+    lowerMessage.length > 500 // Long queries benefit from Gemini's context
+  ) {
+    return 'gemini';
+  }
+
+  // Default: Claude for general conversation and complex reasoning
+  return 'claude';
+}
+
+/**
+ * Call Claude API
+ */
+async function callClaude(options: AICallOptions): Promise<AIResponse> {
+  const client = getAnthropicClient();
+  const model = options.model || 'claude-3-5-sonnet-20241022';
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: options.maxTokens || 1024,
+    system: options.systemPrompt || 'You are Jessica, a helpful AI assistant.',
+    messages: [
+      { role: 'user', content: options.message }
+    ],
+    temperature: options.temperature || 0.7,
+  });
+
+  return {
+    message: response.content[0].type === 'text' ? response.content[0].text : '',
+    provider: 'claude',
+    usage: {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
+    },
+  };
+}
+
+/**
+ * Call Grok API (X.AI)
+ */
+async function callGrok(options: AICallOptions): Promise<AIResponse> {
+  const client = getGrokClient();
+  const model = options.model || 'grok-beta';
+
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+  
+  if (options.systemPrompt) {
+    messages.push({ role: 'system', content: options.systemPrompt });
+  }
+  
+  messages.push({ role: 'user', content: options.message });
+
+  const response = await client.chat.completions.create({
+    model,
+    messages,
+    temperature: options.temperature || 0.7,
+    max_tokens: options.maxTokens || 1024,
+  });
+
+  return {
+    message: response.choices[0]?.message?.content || '',
+    provider: 'grok',
+    usage: {
+      input_tokens: response.usage?.prompt_tokens,
+      output_tokens: response.usage?.completion_tokens,
+    },
+  };
+}
+
+/**
+ * Call Gemini API
+ */
+async function callGemini(options: AICallOptions): Promise<AIResponse> {
+  const model = getGeminiModel(options.model || 'gemini-2.0-flash-exp');
+
+  const systemInstruction = options.systemPrompt || 'You are Jessica, a helpful AI assistant.';
+  const prompt = options.message;
+
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    systemInstruction,
+    generationConfig: {
+      temperature: options.temperature || 0.7,
+      maxOutputTokens: options.maxTokens || 1024,
+    },
+  });
+
+  const response = result.response;
+  const text = response.text();
+
+  return {
+    message: text,
+    provider: 'gemini',
+    // Gemini doesn't provide token usage in the same way
+    usage: undefined,
+  };
+}
+
+/**
+ * Check if a provider is available (has valid API key format, not a placeholder)
+ * Note: This only checks format, not actual validity. Invalid keys will fail when used.
+ */
+function isProviderAvailable(provider: AIProvider): boolean {
+  switch (provider) {
+    case 'claude':
+      const claudeKey = env.ANTHROPIC_API_KEY;
+      return !!claudeKey && 
+             !claudeKey.includes('your-') && 
+             !claudeKey.includes('xxxxx') && 
+             !claudeKey.includes('placeholder') &&
+             claudeKey.startsWith('sk-ant-') &&
+             claudeKey.length > 20; // Basic length check
+    case 'grok':
+      const grokKey = env.XAI_API_KEY;
+      return !!grokKey && 
+             !grokKey.includes('your-') && 
+             !grokKey.includes('xxxxx') && 
+             !grokKey.includes('placeholder') &&
+             grokKey.startsWith('xai-') &&
+             grokKey.length > 20; // Basic length check
+    case 'gemini':
+      const geminiKey = env.GOOGLE_AI_API_KEY;
+      return !!geminiKey && 
+             !geminiKey.includes('your-') && 
+             !geminiKey.includes('xxxxx') && 
+             !geminiKey.includes('placeholder') &&
+             geminiKey.startsWith('AIza') &&
+             geminiKey.length > 20; // Basic length check
+    default:
+      return false;
+  }
+}
+
+/**
+ * Main factory function: routes to appropriate provider
+ */
+export async function callAIProvider(
+  provider: AIProvider,
+  options: AICallOptions
+): Promise<AIResponse> {
+  const selectedProvider = selectProvider(options.message, provider);
+
+  // Check if selected provider is available
+  if (!isProviderAvailable(selectedProvider)) {
+    console.warn(`[AIFactory] ${selectedProvider} not available (missing API key), trying fallbacks...`);
+    
+    // Try fallback chain: Claude -> Gemini -> Grok
+    const fallbackOrder: AIProvider[] = ['claude', 'gemini', 'grok'];
+    for (const fallbackProvider of fallbackOrder) {
+      if (fallbackProvider !== selectedProvider && isProviderAvailable(fallbackProvider)) {
+        console.log(`[AIFactory] Using fallback: ${fallbackProvider}`);
+        try {
+          switch (fallbackProvider) {
+            case 'claude':
+              return await callClaude(options);
+            case 'gemini':
+              return await callGemini(options);
+            case 'grok':
+              return await callGrok(options);
+          }
+        } catch (error) {
+          console.error(`[AIFactory] ${fallbackProvider} fallback failed:`, error);
+          continue;
+        }
+      }
+    }
+    
+    throw new Error(
+      `No AI providers available. Please set at least one API key in .env.local:\n` +
+      `- ANTHROPIC_API_KEY for Claude\n` +
+      `- XAI_API_KEY for Grok 4\n` +
+      `- GOOGLE_AI_API_KEY for Gemini Pro`
+    );
+  }
+
+  try {
+    switch (selectedProvider) {
+      case 'claude':
+        return await callClaude(options);
+      case 'grok':
+        return await callGrok(options);
+      case 'gemini':
+        return await callGemini(options);
+      default:
+        return await callClaude(options); // Fallback to Claude
+    }
+  } catch (error) {
+    console.error(`[AIFactory] ${selectedProvider} failed:`, error);
+    
+    // Parse error to check for billing/credit issues
+    let isBillingError = false;
+    let errorMessage = '';
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      // Check for billing errors in the message
+      isBillingError = (
+        errorMessage.includes('credit balance') ||
+        errorMessage.includes('credit') ||
+        errorMessage.includes('billing') ||
+        errorMessage.includes('insufficient') ||
+        errorMessage.includes('too low')
+      );
+      
+      // Also check if it's an Anthropic API error (they return JSON in error messages)
+      try {
+        const errorMatch = errorMessage.match(/\{.*"error":\s*\{[^}]*"message":\s*"([^"]+)"[^}]*\}/);
+        if (errorMatch) {
+          const apiErrorMessage = errorMatch[1];
+          if (apiErrorMessage.includes('credit') || apiErrorMessage.includes('balance') || apiErrorMessage.includes('billing')) {
+            isBillingError = true;
+            errorMessage = apiErrorMessage;
+          }
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+    
+    // Fallback chain: try available providers in order (skip the failed one)
+    // Priority: Gemini (most reliable) -> Grok -> Claude (skip if billing error)
+    const fallbackProviders: AIProvider[] = ['gemini', 'grok', 'claude'];
+    let fallbackAttempted = false;
+    let lastFallbackError: Error | null = null;
+    const failedProviders = new Set<AIProvider>([selectedProvider]); // Track providers that failed
+    
+    for (const fallbackProvider of fallbackProviders) {
+      // Skip providers that already failed
+      if (failedProviders.has(fallbackProvider)) continue;
+      
+      // Skip Claude if it was a billing error (won't work)
+      if (isBillingError && selectedProvider === 'claude' && fallbackProvider === 'claude') {
+        failedProviders.add('claude');
+        continue;
+      }
+      
+      // Check if provider is available (has valid key format)
+      if (!isProviderAvailable(fallbackProvider)) {
+        console.log(`[AIFactory] Skipping ${fallbackProvider} - not available (missing or invalid API key format)`);
+        failedProviders.add(fallbackProvider);
+        continue;
+      }
+      
+      try {
+        console.log(`[AIFactory] Falling back to ${fallbackProvider}...`);
+        fallbackAttempted = true;
+        switch (fallbackProvider) {
+          case 'claude':
+            return await callClaude(options);
+          case 'gemini':
+            return await callGemini(options);
+          case 'grok':
+            return await callGrok(options);
+        }
+      } catch (fallbackError) {
+        const errorMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        console.error(`[AIFactory] ${fallbackProvider} fallback failed:`, errorMsg);
+        
+        // Check if this is an invalid API key error - if so, mark provider as failed and continue
+        const isInvalidKeyError = (
+          errorMsg.includes('Incorrect API key') ||
+          errorMsg.includes('Invalid API key') ||
+          errorMsg.includes('401') ||
+          errorMsg.includes('403') ||
+          errorMsg.includes('authentication') ||
+          errorMsg.includes('unauthorized')
+        );
+        
+        if (isInvalidKeyError) {
+          console.warn(`[AIFactory] ${fallbackProvider} has invalid API key - marking as unavailable and trying next provider`);
+          failedProviders.add(fallbackProvider);
+        }
+        
+        lastFallbackError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
+        continue; // Try next provider
+      }
+    }
+
+    // If we get here, all providers failed
+    const finalErrorMessage = errorMessage || (error instanceof Error ? error.message : String(error));
+    
+    // Check which providers are actually available (with valid keys)
+    const availableProviders: string[] = [];
+    if (isProviderAvailable('claude')) availableProviders.push('Claude');
+    if (isProviderAvailable('gemini')) availableProviders.push('Gemini');
+    if (isProviderAvailable('grok')) availableProviders.push('Grok');
+    
+    // Check which providers have keys but might be invalid
+    const invalidKeyProviders: string[] = [];
+    if (env.ANTHROPIC_API_KEY && !isProviderAvailable('claude')) invalidKeyProviders.push('Claude (invalid key)');
+    if (env.GOOGLE_AI_API_KEY && !isProviderAvailable('gemini')) invalidKeyProviders.push('Gemini (placeholder/invalid key)');
+    if (env.XAI_API_KEY && !isProviderAvailable('grok')) invalidKeyProviders.push('Grok (placeholder/invalid key)');
+    
+    if (isBillingError && selectedProvider === 'claude') {
+      let availableText = '';
+      if (availableProviders.length > 0) {
+        availableText = `Available providers: ${availableProviders.join(', ')}`;
+      } else if (invalidKeyProviders.length > 0) {
+        availableText = `Providers with invalid/placeholder keys: ${invalidKeyProviders.join(', ')}`;
+      } else {
+        availableText = 'No other providers configured';
+      }
+      
+      let helpText = '';
+      const attemptedProviders = Array.from(failedProviders).filter(p => p !== selectedProvider);
+      
+      if (!fallbackAttempted) {
+        helpText = `\n\nNo fallback providers were attempted. Please check your .env.local file:\n` +
+          `- GOOGLE_AI_API_KEY should start with "AIza" (get from https://aistudio.google.com/apikey)\n` +
+          `- XAI_API_KEY should start with "xai-" (get from https://console.x.ai/)\n`;
+      } else if (lastFallbackError) {
+        const errorDetails = attemptedProviders.length > 0 
+          ? `Tried: ${attemptedProviders.join(', ')}. All failed.`
+          : '';
+        helpText = `\n\nFallback was attempted but failed. ${errorDetails}\nLast error: ${lastFallbackError.message}`;
+      }
+      
+      throw new Error(
+        `Claude API requires API credits (separate from Claude Pro Max subscription). ` +
+        `The system tried to use Gemini or Grok as fallback, but they failed or are not properly configured. ` +
+        `${availableText}${helpText}\n\n` +
+        `Please either:\n` +
+        `1. Add API credits to your Anthropic account at https://console.anthropic.com/, OR\n` +
+        `2. Set up valid GOOGLE_AI_API_KEY or XAI_API_KEY in .env.local (replace placeholder values)\n\n` +
+        `Original error: ${finalErrorMessage}`
+      );
+    }
+    
+    const availableText = availableProviders.length > 0 
+      ? `Available providers: ${availableProviders.join(', ')}` 
+      : 'No providers configured';
+    
+    throw new Error(`All AI providers failed. ${availableText}. Last error: ${finalErrorMessage}`);
+  }
+}
+
