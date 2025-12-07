@@ -94,7 +94,7 @@ export function ChatInput({ onSend, isLoading = false, placeholder = "How can I 
 
               {/* Dropdown Menu */}
               {showDropdown && (
-                <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1a1a] border border-gray-800 rounded-lg shadow-xl overflow-hidden z-50 animate-fade-in">
+                <div className="absolute top-full left-0 mt-2 w-48 bg-[#1a1a1a] border border-gray-800 rounded-lg shadow-xl overflow-y-auto z-50 animate-fade-in max-h-60">
                   {(Object.keys(providerConfig) as AIProvider[]).map((key) => (
                     <button
                       key={key}

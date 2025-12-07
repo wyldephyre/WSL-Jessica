@@ -7,6 +7,8 @@ import time
 import uuid
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from functools import lru_cache
 from typing import Optional, Dict, List, Tuple
 from dotenv import load_dotenv
@@ -45,6 +47,32 @@ CORS(app,
      supports_credentials=True,
      allow_headers=["Content-Type", "Authorization", "X-Request-ID", "X-User-ID"])  # Required headers
 
+# =============================================================================
+# SINGLE-USER CONFIGURATION
+# =============================================================================
+# Single-user system: Set your user ID here
+# NOTE: Must be defined before rate limiter initialization
+USER_ID = "PhyreBug"
+
+# Rate limiting configuration
+# Single-user system: Rate limiting uses constant USER_ID
+def get_rate_limit_key():
+    """Get rate limit key - single-user system uses constant"""
+    return f"user:{USER_ID}"
+
+# Rate limit configuration from environment variables
+RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "60 per minute")
+RATE_LIMIT_TRANSCRIBE = os.getenv("RATE_LIMIT_TRANSCRIBE", "10 per minute")
+RATE_LIMIT_PROXY = os.getenv("RATE_LIMIT_PROXY", "100 per minute")
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_rate_limit_key,
+    default_limits=[f"{RATE_LIMIT_CHAT}"],  # Default limit for all routes
+    storage_uri="memory://"  # In-memory storage (simple, works for single server)
+)
+
 # Request ID middleware
 @app.before_request
 def before_request():
@@ -74,9 +102,6 @@ MEM0_API_KEY = os.getenv("MEM0_API_KEY")
 # MEM0 CONFIGURATION
 # =============================================================================
 MEM0_BASE_URL = "https://api.mem0.ai/v1"
-# SECURITY FIX: Remove hardcoded user ID - now passed dynamically per request
-# Legacy hardcoded ID kept as fallback for development only
-DEFAULT_MEM0_USER_ID = "PhyreBug"
 
 # =============================================================================
 # CONSTANTS
@@ -825,13 +850,20 @@ def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
 # MEM0 FUNCTIONS
 # =============================================================================
 
-def mem0_add_memory(content: str, user_id: str = None, metadata: dict = None) -> dict:
-    """Add memory to Mem0 cloud"""
+def mem0_add_memory(content: str, user_id: str, metadata: dict = None) -> dict:
+    """Add memory to Mem0 cloud
+    
+    Args:
+        content: Memory content to store
+        user_id: User ID (required, no fallback)
+        metadata: Optional metadata dict
+    """
     if not MEM0_API_KEY:
         return {"error": "MEM0_API_KEY not configured"}
     
-    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
-    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        raise ValidationError("user_id is required")
     
     try:
         headers = {
@@ -841,7 +873,7 @@ def mem0_add_memory(content: str, user_id: str = None, metadata: dict = None) ->
         
         payload = {
             "messages": [{"role": "user", "content": content}],
-            "user_id": effective_user_id
+            "user_id": user_id
         }
         
         if metadata:
@@ -860,13 +892,21 @@ def mem0_add_memory(content: str, user_id: str = None, metadata: dict = None) ->
         return {"error": str(e)}
 
 
-def mem0_search_memories(query: str, user_id: str = None, limit: int = 5) -> list:
-    """Search memories in Mem0 cloud"""
+def mem0_search_memories(query: str, user_id: str, limit: int = 5) -> list:
+    """Search memories in Mem0 cloud
+    
+    Args:
+        query: Search query string
+        user_id: User ID (required, no fallback)
+        limit: Maximum number of results (default: 5)
+    """
     if not MEM0_API_KEY:
         return []
     
-    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
-    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        logger.error("mem0_search_memories called without user_id")
+        return []
     
     try:
         headers = {
@@ -874,7 +914,7 @@ def mem0_search_memories(query: str, user_id: str = None, limit: int = 5) -> lis
             "Content-Type": "application/json"
         }
         
-        payload = {"query": query, "user_id": effective_user_id, "limit": limit}
+        payload = {"query": query, "user_id": user_id, "limit": limit}
         
         response = http_session.post(
             f"{MEM0_BASE_URL}/memories/search/",
@@ -894,16 +934,25 @@ def mem0_search_memories(query: str, user_id: str = None, limit: int = 5) -> lis
         return []
 
 
-def mem0_get_all_memories() -> list:
-    """Get all memories for user from Mem0"""
+def mem0_get_all_memories(user_id: str) -> list:
+    """Get all memories for user from Mem0
+    
+    Args:
+        user_id: User ID (required, no fallback)
+    """
     if not MEM0_API_KEY:
+        return []
+    
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        logger.error("mem0_get_all_memories called without user_id")
         return []
     
     try:
         headers = {"Authorization": f"Token {MEM0_API_KEY}"}
         
         response = http_session.get(
-            f"{MEM0_BASE_URL}/memories/?user_id={MEM0_USER_ID}",
+            f"{MEM0_BASE_URL}/memories/?user_id={user_id}",
             headers=headers,
             timeout=MEM0_TIMEOUT
         )
@@ -923,15 +972,24 @@ def mem0_get_all_memories() -> list:
 # DUAL MEMORY SYSTEM
 # =============================================================================
 
-def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str, user_id: str = None) -> None:
-    """Internal synchronous function for memory storage"""
+def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str, user_id: str) -> None:
+    """Internal synchronous function for memory storage
+    
+    Args:
+        user_message: User's message
+        jessica_response: Jessica's response
+        provider_used: AI provider used
+        user_id: User ID (required, no fallback)
+    """
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        logger.error("_store_memory_dual_sync called without user_id - skipping memory storage")
+        return
+    
     memory_text = f"User: {user_message}\nJessica: {jessica_response}"
     # Use full SHA256 hash + timestamp for collision-resistant IDs
     timestamp = str(time.time())
     memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()
-    
-    # SECURITY FIX: Use passed user_id, fallback to default for legacy compatibility
-    effective_user_id = user_id or DEFAULT_MEM0_USER_ID
     
     # Store in local ChromaDB
     try:
@@ -941,7 +999,7 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
                 "id": memory_id,
                 "text": memory_text,
                 "collection": "conversations",
-                "metadata": {"provider": provider_used, "user_id": effective_user_id}
+                "metadata": {"provider": provider_used, "user_id": user_id}
             },
             timeout=LOCAL_SERVICE_TIMEOUT
         )
@@ -952,15 +1010,22 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
     try:
         mem0_add_memory(
             memory_text,
-            user_id=effective_user_id,
+            user_id=user_id,
             metadata={"provider": provider_used, "source": "jessica_local"}
         )
     except Exception as e:
         logger.error(f"Mem0 store failed: {e}")
 
 
-def store_memory_dual(user_message: str, jessica_response: str, provider_used: str, user_id: str = None) -> None:
-    """Store memory in both local ChromaDB and Mem0 cloud (non-blocking)"""
+def store_memory_dual(user_message: str, jessica_response: str, provider_used: str, user_id: str) -> None:
+    """Store memory in both local ChromaDB and Mem0 cloud (non-blocking)
+    
+    Args:
+        user_message: User's message
+        jessica_response: Jessica's response
+        provider_used: AI provider used
+        user_id: User ID (required, no fallback)
+    """
     # Fire and forget - don't block the response
     thread = threading.Thread(
         target=_store_memory_dual_sync,
@@ -970,8 +1035,13 @@ def store_memory_dual(user_message: str, jessica_response: str, provider_used: s
     thread.start()
 
 
-def recall_memory_dual(query: str) -> Dict[str, List[str]]:
-    """Recall from both local ChromaDB and Mem0"""
+def recall_memory_dual(query: str, user_id: str) -> Dict[str, List[str]]:
+    """Recall from both local ChromaDB and Mem0
+    
+    Args:
+        query: Search query string
+        user_id: User ID (required, no fallback)
+    """
     context = {"local": [], "cloud": []}
     
     try:
@@ -986,7 +1056,7 @@ def recall_memory_dual(query: str) -> Dict[str, List[str]]:
         logger.error(f"Local recall failed: {e}")
     
     try:
-        cloud_memories = mem0_search_memories(query, limit=3)
+        cloud_memories = mem0_search_memories(query, user_id, limit=3)
         # Handle different Mem0 response formats
         cloud_texts = []
         for m in cloud_memories:
@@ -1037,6 +1107,7 @@ def _load_local_prompt():
 # =============================================================================
 
 @app.route('/chat', methods=['POST'])
+@limiter.limit(RATE_LIMIT_CHAT)
 def chat():
     """Main chat endpoint with error handling"""
     try:
@@ -1053,16 +1124,8 @@ def chat():
         if not isinstance(user_message, str) or len(user_message.strip()) == 0:
             raise ValidationError("Message must be a non-empty string")
             
-        # SECURITY FIX: Get and validate user_id
-        user_id = data.get('user_id')
-        if not user_id:
-            raise ValidationError("Missing 'user_id' field")
-        if not isinstance(user_id, str) or len(user_id) > 50:
-            raise ValidationError("Invalid user_id format")
-        # Only allow alphanumeric characters, hyphens, and underscores
-        import re
-        if not re.match(r'^[a-zA-Z0-9_-]+$', user_id):
-            raise ValidationError("user_id contains invalid characters")
+        # Single-user system: Use constant USER_ID (no validation needed)
+        user_id = USER_ID
             
         # SECURITY FIX: Add input length limits
         if len(user_message) > 10000:  # 10K character limit
@@ -1079,7 +1142,7 @@ def chat():
         master_prompt = _load_master_prompt()     # Full prompt for Claude
         local_prompt = _load_local_prompt()       # Condensed prompt for local Ollama
         
-        memory_context = recall_memory_dual(user_message)
+        memory_context = recall_memory_dual(user_message, user_id)
         provider, tier, reason = detect_routing_tier(user_message, explicit_directive)
     
         # Optimized context building using list join
@@ -1155,15 +1218,22 @@ def chat():
 
 @app.route('/memory/cloud/search', methods=['POST'])
 def search_cloud_memory():
+    """Search cloud memories - uses single-user constant"""
     data = request.json
+    if not data:
+        raise ValidationError("Request body must be JSON")
+    
     query = data.get('query', '')
-    results = mem0_search_memories(query)
+    # Single-user system: Use constant USER_ID
+    results = mem0_search_memories(query, USER_ID)
     return jsonify({"results": results})
 
 
 @app.route('/memory/cloud/all', methods=['GET'])
 def get_all_cloud_memories():
-    results = mem0_get_all_memories()
+    """Get all cloud memories - uses single-user constant"""
+    # Single-user system: Use constant USER_ID
+    results = mem0_get_all_memories(USER_ID)
     return jsonify({"results": results})
 
 
@@ -1231,6 +1301,7 @@ def get_modes():
 
 
 @app.route('/transcribe', methods=['POST'])
+@limiter.limit(RATE_LIMIT_TRANSCRIBE)
 def transcribe_audio():
     """Transcribe audio endpoint with error handling"""
     try:
@@ -1267,6 +1338,132 @@ def transcribe_audio():
             "error_code": "SERVICE_UNAVAILABLE",
             "request_id": g.request_id
         }), 503
+
+
+# =============================================================================
+# PROXY ENDPOINTS (API Keys on Backend Only)
+# =============================================================================
+
+@app.route('/api/proxy/claude', methods=['POST'])
+@limiter.limit(RATE_LIMIT_PROXY)
+def proxy_claude():
+    """Proxy endpoint for Claude API - calls Claude server-side using backend API key"""
+    try:
+        # Input validation
+        if not request.json:
+            raise ValidationError("Request body must be JSON")
+        
+        data = request.json
+        message = data.get('message', '')
+        system_prompt = data.get('system_prompt', '')
+        model = data.get('model', 'claude-sonnet-4-20250514')
+        
+        # Single-user system: Use constant USER_ID (not from request)
+        user_id = USER_ID
+        
+        # Validate message
+        if not isinstance(message, str) or len(message.strip()) == 0:
+            raise ValidationError("Message must be a non-empty string")
+        if len(message) > 10000:
+            raise ValidationError("Message too long (max 10,000 characters)")
+        
+        # Call Claude API using backend function
+        response_text = call_claude_api(message, system_prompt)
+        
+        return jsonify({
+            "response": response_text,
+            "request_id": g.request_id
+        })
+    except ValidationError as e:
+        logger.warning(f"Validation error in proxy/claude: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except Exception as e:
+        logger.error(f"Unexpected error in proxy/claude: {type(e).__name__}: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "An unexpected error occurred",
+            "error_code": "INTERNAL_ERROR",
+            "request_id": g.request_id
+        }), 500
+
+
+@app.route('/api/proxy/grok', methods=['POST'])
+@limiter.limit(RATE_LIMIT_PROXY)
+def proxy_grok():
+    """Proxy endpoint for Grok API - calls Grok server-side using backend API key"""
+    try:
+        # Input validation
+        if not request.json:
+            raise ValidationError("Request body must be JSON")
+        
+        data = request.json
+        message = data.get('message', '')
+        system_prompt = data.get('system_prompt', '')
+        # Single-user system: Use constant USER_ID (not from request)
+        user_id = USER_ID
+        
+        # Validate message
+        if not isinstance(message, str) or len(message.strip()) == 0:
+            raise ValidationError("Message must be a non-empty string")
+        if len(message) > 10000:
+            raise ValidationError("Message too long (max 10,000 characters)")
+        
+        # Call Grok API using backend function
+        response_text = call_grok_api(message, system_prompt)
+        
+        return jsonify({
+            "response": response_text,
+            "request_id": g.request_id
+        })
+    except ValidationError as e:
+        logger.warning(f"Validation error in proxy/grok: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except Exception as e:
+        logger.error(f"Unexpected error in proxy/grok: {type(e).__name__}: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "An unexpected error occurred",
+            "error_code": "INTERNAL_ERROR",
+            "request_id": g.request_id
+        }), 500
+
+
+@app.route('/api/proxy/gemini', methods=['POST'])
+@limiter.limit(RATE_LIMIT_PROXY)
+def proxy_gemini():
+    """Proxy endpoint for Gemini API - calls Gemini server-side using backend API key"""
+    try:
+        # Input validation
+        if not request.json:
+            raise ValidationError("Request body must be JSON")
+        
+        data = request.json
+        message = data.get('message', '')
+        system_prompt = data.get('system_prompt', '')
+        # Single-user system: Use constant USER_ID (not from request)
+        user_id = USER_ID
+        
+        # Validate message
+        if not isinstance(message, str) or len(message.strip()) == 0:
+            raise ValidationError("Message must be a non-empty string")
+        if len(message) > 10000:
+            raise ValidationError("Message too long (max 10,000 characters)")
+        
+        # Call Gemini API using backend function
+        response_text = call_gemini_api(message, system_prompt)
+        
+        return jsonify({
+            "response": response_text,
+            "request_id": g.request_id
+        })
+    except ValidationError as e:
+        logger.warning(f"Validation error in proxy/gemini: {e.message}")
+        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
+    except Exception as e:
+        logger.error(f"Unexpected error in proxy/gemini: {type(e).__name__}: {str(e)}", exc_info=True)
+        return jsonify({
+            "error": "An unexpected error occurred",
+            "error_code": "INTERNAL_ERROR",
+            "request_id": g.request_id
+        }), 500
 
 
 # =============================================================================

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiModel } from '@/lib/api/gemini';
+import { callGeminiViaProxy } from '@/lib/api/gemini';
 import { searchMemories, addConversation, addConversationToMultipleContexts, getCoreRelationshipMemories } from '@/lib/services/memoryService';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
 import { MemoryContext } from '@/lib/types/memory';
@@ -8,8 +8,17 @@ import { requireAuth } from '@/lib/middleware/auth';
 
 export async function POST(req: NextRequest) {
   try {
-    // Require authentication
-    const { userId } = await requireAuth(req);
+    // Single-user system: Use constant user ID (backend handles this, but we need it for memory storage)
+    // TODO: For multi-user, restore requireAuth(req)
+    let userId: string;
+    try {
+      const authResult = await requireAuth(req);
+      userId = authResult.userId;
+    } catch (authError) {
+      // Single-user mode: Use constant user ID if auth fails
+      // Backend uses USER_ID constant, but frontend memory service needs a user ID
+      userId = 'PhyreBug'; // Match backend USER_ID constant
+    }
     
     const { message, context = 'personal' as MemoryContext, model, memoryStorageContexts } = await req.json();
 
@@ -42,19 +51,8 @@ export async function POST(req: NextRequest) {
     // Build system instruction using master prompt system (includes core relationship memories)
     const systemInstruction = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
 
-    // Call Gemini
-    const geminiModel = getGeminiModel(model || 'gemini-2.0-flash-exp');
-
-    const result = await geminiModel.generateContent({
-      contents: [{ role: 'user', parts: [{ text: message }] }],
-      systemInstruction,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1024,
-      },
-    });
-
-    const assistantMessage = result.response.text();
+    // Call Gemini via backend proxy
+    const assistantMessage = await callGeminiViaProxy(message, userId, systemInstruction);
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {

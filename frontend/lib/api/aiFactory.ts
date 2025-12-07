@@ -1,5 +1,7 @@
 // SECURITY FIX: Removed direct API client imports - all calls now go through backend routes
 
+import { env } from '@/lib/config/env';
+
 export type AIProvider = 'claude' | 'gemini' | 'grok' | 'local';
 
 export interface AIProviderResponse {
@@ -14,12 +16,12 @@ export async function callAIProvider(
   provider: AIProvider,
   message: string,
   systemPrompt?: string,
-  userId: string = 'default-user'
+  userId: string = 'default-user' // Not used - kept for backward compatibility
 ): Promise<AIProviderResponse> {
   // SECURITY FIX: All providers now call backend routes instead of using API keys directly
+  // Single-user system: user_id no longer needed - backend uses constant
   const basePayload = {
     message,
-    user_id: userId,
     ...(systemPrompt && { systemPrompt }),
   };
 
@@ -29,7 +31,6 @@ export async function callAIProvider(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-ID': userId,
         },
         body: JSON.stringify(basePayload),
       });
@@ -50,7 +51,6 @@ export async function callAIProvider(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-ID': userId,
         },
         body: JSON.stringify(basePayload),
       });
@@ -71,7 +71,6 @@ export async function callAIProvider(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-ID': userId,
         },
         body: JSON.stringify(basePayload),
       });
@@ -89,20 +88,35 @@ export async function callAIProvider(
 
     case 'local': {
       // Call Jessica Core backend
-      const response = await fetch('http://localhost:8000/chat', {
+      const apiUrl = env.API_URL || 'http://localhost:8000';
+      const payload = {
+        message,
+        provider: 'local',
+      };
+      
+      // Debug logging (server-side only)
+      if (typeof window === 'undefined') {
+        console.log('[AI Factory] Calling backend:', apiUrl, 'Payload:', JSON.stringify(payload));
+      }
+      
+      const response = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          message,
-          user_id: userId,
-          provider: 'local',
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        throw new Error(`Local API error: ${response.statusText}`);
+        // Try to get error details from response
+        let errorMessage = `Local API error: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          // If JSON parsing fails, use status text
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

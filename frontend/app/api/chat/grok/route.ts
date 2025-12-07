@@ -1,15 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGrokClient } from '@/lib/api/grok';
+import { callGrokViaProxy } from '@/lib/api/grok';
 import { searchMemories, addConversation, addConversationToMultipleContexts, getCoreRelationshipMemories } from '@/lib/services/memoryService';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
 import { MemoryContext } from '@/lib/types/memory';
 import { buildSystemPrompt } from '@/lib/prompts/jessica-master-prompt';
 import { requireAuth } from '@/lib/middleware/auth';
+import { env } from '@/lib/config/env';
 
 export async function POST(req: NextRequest) {
   try {
-    // Require authentication
-    const { userId } = await requireAuth(req);
+    // Single-user system: Use constant user ID (backend handles this, but we need it for memory storage)
+    // TODO: For multi-user, restore requireAuth(req)
+    let userId: string;
+    try {
+      const authResult = await requireAuth(req);
+      userId = authResult.userId;
+    } catch (authError) {
+      // Single-user mode: Use constant user ID if auth fails
+      // Backend uses USER_ID constant, but frontend memory service needs a user ID
+      userId = 'PhyreBug'; // Match backend USER_ID constant
+    }
     
     const { message, context = 'personal' as MemoryContext, model, memoryStorageContexts } = await req.json();
 
@@ -42,21 +52,8 @@ export async function POST(req: NextRequest) {
     // Build system prompt using master prompt system (includes core relationship memories)
     const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
 
-    // Call Grok
-    const client = getGrokClient();
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
-    
-    messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: message });
-
-    const response = await client.chat.completions.create({
-      model: model || 'grok-beta',
-      messages,
-      temperature: 0.7,
-      max_tokens: 1024,
-    });
-
-    const assistantMessage = response.choices[0]?.message?.content || '';
+    // Call Grok via backend proxy
+    const assistantMessage = await callGrokViaProxy(message, userId, systemPrompt);
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {
@@ -83,10 +80,7 @@ export async function POST(req: NextRequest) {
       success: true,
       message: assistantMessage,
       provider: 'grok',
-      usage: {
-        input_tokens: response.usage?.prompt_tokens,
-        output_tokens: response.usage?.completion_tokens,
-      },
+      usage: undefined, // Token usage not available from proxy endpoint
     });
 
   } catch (error) {

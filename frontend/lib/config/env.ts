@@ -4,12 +4,12 @@
  */
 
 export const env = {
-  // API Keys
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-  XAI_API_KEY: process.env.XAI_API_KEY || '',
-  GOOGLE_AI_API_KEY: process.env.GOOGLE_AI_API_KEY || '',
-  GROQ_API_KEY: process.env.GROQ_API_KEY || '',
-  MEM0_API_KEY: process.env.MEM0_API_KEY || '',
+  // API Keys (removed from frontend - now server-side only)
+  // ANTHROPIC_API_KEY, XAI_API_KEY, GOOGLE_AI_API_KEY removed - use backend proxy endpoints
+  // GROQ_API_KEY and MEM0_API_KEY kept for server-side Next.js API routes only
+  
+  GROQ_API_KEY: process.env.GROQ_API_KEY || '', // Used in server-side Next.js routes only
+  MEM0_API_KEY: process.env.MEM0_API_KEY || '', // Used in server-side Next.js routes only
 
   // Firebase
   FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',

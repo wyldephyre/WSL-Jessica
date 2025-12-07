@@ -41,8 +41,17 @@ async function getGoogleToken(userId: string): Promise<string | null> {
 
 export async function POST(req: NextRequest) {
   try {
-    // Require authentication
-    const { userId } = await requireAuth(req);
+    // Single-user system: Use constant user ID (backend handles this, but we need it for memory storage)
+    // TODO: For multi-user, restore requireAuth(req)
+    let userId: string;
+    try {
+      const authResult = await requireAuth(req);
+      userId = authResult.userId;
+    } catch (authError) {
+      // Single-user mode: Use constant user ID if auth fails
+      // Backend uses USER_ID constant, but frontend memory service needs a user ID
+      userId = 'PhyreBug'; // Match backend USER_ID constant
+    }
     
     const { message, context = 'personal' as MemoryContext, provider = 'auto' as AIProvider, memoryStorageContexts } = await req.json();
     
@@ -116,8 +125,11 @@ export async function POST(req: NextRequest) {
         const baseSystemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
         const systemPrompt = `${baseSystemPrompt}\n\nA calendar event has been created. Confirm this to the user in a friendly way.`;
 
+        // Convert 'auto' provider to 'local' (backend handles intelligent routing)
+        const calendarProvider = provider === 'auto' ? 'local' : provider;
+
         // Call AI provider with intelligent routing
-        const response = await callAIProvider(provider, message + calendarConfirmation, systemPrompt);
+        const response = await callAIProvider(calendarProvider, message + calendarConfirmation, systemPrompt);
 
         // Store conversation in memory (async, non-blocking) using memory storage contexts
         if (memoryContexts.length === 1) {
@@ -173,8 +185,11 @@ export async function POST(req: NextRequest) {
     // Build system prompt using master prompt system (includes core relationship memories)
     const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
 
+    // Convert 'auto' provider to 'local' (backend handles intelligent routing)
+    const actualProvider = provider === 'auto' ? 'local' : provider;
+
     // Call AI provider with intelligent routing
-    const response = await callAIProvider(provider, message, systemPrompt);
+    const response = await callAIProvider(actualProvider, message, systemPrompt);
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {

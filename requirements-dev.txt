@@ -1,0 +1,22 @@
+# Jessica Core - Development Dependencies
+# Testing and development tools
+
+# Testing Framework
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+pytest-asyncio>=0.21.0
+
+# Test utilities
+requests-mock>=1.11.0
+faker>=20.0.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+pylint>=2.17.0
+
+# Coverage
+coverage>=7.3.0
+
