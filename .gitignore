@@ -35,6 +35,10 @@ env/
 *~
 .DS_Store
 
+# Cursor & Factory AI (local IDE files - DO NOT COMMIT)
+.cursor/
+.factory/
+
 # Environment variables
 .env
 .env.local
