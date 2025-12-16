@@ -46,11 +46,30 @@ export async function POST(req: NextRequest) {
 
     // Format memory context for system prompt
     const memoryContext = memories.length > 0
-      ? memories.map((m: { memory: string }) => `- ${m.memory}`).join('\n')
+      ? memories
+          .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+          .filter((line) => line !== '- ')
+          .join('\n')
       : 'No relevant memories found.';
 
-    // Build system prompt using master prompt system (includes core relationship memories)
-    const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
+    // Build system prompt using master prompt system
+    const coreRelationshipContext =
+      coreRelationshipMemories.length > 0
+        ? coreRelationshipMemories
+            .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+            .filter((line) => line !== '- ')
+            .join('\n')
+        : '';
+
+    const combinedMemoryContext =
+      coreRelationshipContext
+        ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
+        : memoryContext;
+
+    const systemPrompt = buildSystemPrompt({
+      memoryContext: combinedMemoryContext,
+      additionalInstructions: `Memory context namespace: ${context}`,
+    });
 
     // Call Grok via backend proxy
     const assistantMessage = await callGrokViaProxy(message, userId, systemPrompt);

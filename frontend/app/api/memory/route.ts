@@ -93,7 +93,7 @@ export async function PUT(req: NextRequest) {
       throw new ValidationError('Memory ID and content are required');
     }
 
-    const memory = await updateMemory(id, content, metadata);
+    const memory = await updateMemory(id, content, userId, metadata);
 
     return NextResponse.json({
       success: true,
@@ -119,7 +119,7 @@ export async function DELETE(req: NextRequest) {
       throw new ValidationError('Memory ID is required');
     }
 
-    await deleteMemory(id);
+    await deleteMemory(id, userId);
 
     return NextResponse.json({
       success: true,

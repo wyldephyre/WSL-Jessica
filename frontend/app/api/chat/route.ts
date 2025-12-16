@@ -88,11 +88,21 @@ export async function POST(req: NextRequest) {
 
       // Create calendar event
       try {
+        const now = new Date();
+        const rawStart = calendarIntent.eventData?.startTime;
+        const rawEnd = calendarIntent.eventData?.endTime;
+
+        const start = rawStart ? new Date(rawStart) : now;
+        const safeStart = Number.isNaN(start.getTime()) ? now : start;
+
+        const end = rawEnd ? new Date(rawEnd) : new Date(safeStart.getTime() + 60 * 60 * 1000);
+        const safeEnd = Number.isNaN(end.getTime()) ? new Date(safeStart.getTime() + 60 * 60 * 1000) : end;
+
         const eventData = {
-          title: calendarIntent.title || 'Untitled Event',
-          date: calendarIntent.date || new Date().toISOString().split('T')[0],
-          time: calendarIntent.time || undefined,
-          notes: calendarIntent.notes || undefined,
+          title: calendarIntent.eventData?.title || 'Untitled Event',
+          startTime: safeStart.toISOString(),
+          endTime: safeEnd.toISOString(),
+          location: calendarIntent.eventData?.location || undefined,
         };
 
         const createdEvent = await createCalendarEvent(eventData, accessToken, 'primary');
@@ -104,7 +114,7 @@ export async function POST(req: NextRequest) {
         };
 
         // Update the AI response to include calendar confirmation
-        const calendarConfirmation = `\n\n✅ Calendar event created: "${eventData.title}"${eventData.date ? ` on ${eventData.date}` : ''}${eventData.time ? ` at ${eventData.time}` : ''}`;
+        const calendarConfirmation = `\n\n✅ Calendar event created: "${eventData.title}" (${safeStart.toLocaleString()} - ${safeEnd.toLocaleString()})`;
         
         // Retrieve relevant memories and core relationship memories in parallel
         const [memories, coreRelationshipMemories] = await Promise.all([
@@ -118,12 +128,30 @@ export async function POST(req: NextRequest) {
 
         // Format memory context for system prompt
         const memoryContext = memories.length > 0
-          ? memories.map((m: { memory: string }) => `- ${m.memory}`).join('\n')
+          ? memories
+              .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+              .filter((line) => line !== '- ')
+              .join('\n')
           : 'No relevant memories found.';
 
-        // Build system prompt using master prompt system (includes core relationship memories)
-        const baseSystemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
-        const systemPrompt = `${baseSystemPrompt}\n\nA calendar event has been created. Confirm this to the user in a friendly way.`;
+        // Build system prompt using master prompt system
+        const coreRelationshipContext =
+          coreRelationshipMemories.length > 0
+            ? coreRelationshipMemories
+                .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+                .filter((line) => line !== '- ')
+                .join('\n')
+            : '';
+
+        const combinedMemoryContext =
+          coreRelationshipContext
+            ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
+            : memoryContext;
+
+        const systemPrompt = buildSystemPrompt({
+          memoryContext: combinedMemoryContext,
+          additionalInstructions: `Memory context namespace: ${context}\nA calendar event has been created. Confirm this to the user in a friendly way.`,
+        });
 
         // Convert 'auto' provider to 'local' (backend handles intelligent routing)
         const calendarProvider = provider === 'auto' ? 'local' : provider;
@@ -179,11 +207,30 @@ export async function POST(req: NextRequest) {
 
     // Format memory context for system prompt
     const memoryContext = memories.length > 0
-      ? memories.map((m: { memory: string }) => `- ${m.memory}`).join('\n')
+      ? memories
+          .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+          .filter((line) => line !== '- ')
+          .join('\n')
       : 'No relevant memories found.';
 
-    // Build system prompt using master prompt system (includes core relationship memories)
-    const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
+    // Build system prompt using master prompt system
+    const coreRelationshipContext =
+      coreRelationshipMemories.length > 0
+        ? coreRelationshipMemories
+            .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+            .filter((line) => line !== '- ')
+            .join('\n')
+        : '';
+
+    const combinedMemoryContext =
+      coreRelationshipContext
+        ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
+        : memoryContext;
+
+    const systemPrompt = buildSystemPrompt({
+      memoryContext: combinedMemoryContext,
+      additionalInstructions: `Memory context namespace: ${context}`,
+    });
 
     // Convert 'auto' provider to 'local' (backend handles intelligent routing)
     const actualProvider = provider === 'auto' ? 'local' : provider;
