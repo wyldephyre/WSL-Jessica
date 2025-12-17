@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   searchMemories,
   addMemory,
-  updateMemory,
-  deleteMemory,
   getAllMemories,
 } from '@/lib/services/memoryService';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
@@ -84,21 +82,10 @@ export async function POST(req: NextRequest) {
  */
 export async function PUT(req: NextRequest) {
   try {
-    // Require authentication
-    const { userId } = await requireAuth(req);
-    
-    const { id, content, metadata } = await req.json();
-
-    if (!id || !content) {
-      throw new ValidationError('Memory ID and content are required');
-    }
-
-    const memory = await updateMemory(id, content, userId, metadata);
-
-    return NextResponse.json({
-      success: true,
-      memory,
-    });
+    return NextResponse.json(
+      { error: 'Memory update is append-only (create a new memory instead).', code: 'NOT_IMPLEMENTED' },
+      { status: 501 }
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -109,22 +96,10 @@ export async function PUT(req: NextRequest) {
  */
 export async function DELETE(req: NextRequest) {
   try {
-    // Require authentication
-    const { userId } = await requireAuth(req);
-    
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get('id');
-
-    if (!id) {
-      throw new ValidationError('Memory ID is required');
-    }
-
-    await deleteMemory(id, userId);
-
-    return NextResponse.json({
-      success: true,
-      message: 'Memory deleted',
-    });
+    return NextResponse.json(
+      { error: 'Memory delete is not supported; use tombstones/append-only.', code: 'NOT_IMPLEMENTED' },
+      { status: 501 }
+    );
   } catch (error) {
     return handleApiError(error);
   }
