@@ -1224,8 +1224,13 @@ def search_cloud_memory():
         raise ValidationError("Request body must be JSON")
     
     query = data.get('query', '')
+    limit = data.get('limit', 5)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 5
     # Single-user system: Use constant USER_ID
-    results = mem0_search_memories(query, USER_ID)
+    results = mem0_search_memories(query, USER_ID, limit=limit)
     return jsonify({"results": results})
 
 
@@ -1235,6 +1240,31 @@ def get_all_cloud_memories():
     # Single-user system: Use constant USER_ID
     results = mem0_get_all_memories(USER_ID)
     return jsonify({"results": results})
+
+
+@app.route('/memory/cloud/add', methods=['POST'])
+def add_cloud_memory():
+    """Add a cloud memory to Mem0 - uses single-user constant"""
+    data = request.json
+    if not data:
+        raise ValidationError("Request body must be JSON")
+
+    content = data.get('content', '')
+    metadata = data.get('metadata') or {}
+    if not isinstance(metadata, dict):
+        raise ValidationError("metadata must be an object")
+
+    if not content or not isinstance(content, str):
+        raise ValidationError("content is required")
+
+    # Single-user system: Use constant USER_ID
+    result = mem0_add_memory(content, USER_ID, metadata=metadata)
+
+    # mem0_add_memory returns {"error": "..."} on failure
+    if isinstance(result, dict) and result.get("error"):
+        return jsonify({"error": result["error"], "request_id": g.request_id}), 502
+
+    return jsonify({"success": True, "result": result, "request_id": g.request_id})
 
 
 @app.route('/status', methods=['GET'])

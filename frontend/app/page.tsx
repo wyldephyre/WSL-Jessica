@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '@/firebase';
 import { ChatInput } from '@/components/features/chat/ChatInput';
 import type { Task } from '@/lib/types/task';
 
@@ -47,29 +45,11 @@ export default function Home() {
   // Fetch pending tasks
   const fetchTasks = useCallback(async () => {
     try {
-      const q = query(
-        collection(db, 'tasks'),
-        where('completed', '==', false)
-      );
-      const querySnapshot = await getDocs(q);
-      const tasksData: Task[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        tasksData.push({ id: doc.id, ...doc.data() } as Task);
-      });
-
-      // Sort by createdAt descending
-      tasksData.sort((a, b) => {
-        const getTs = (t: Task): number => {
-          const ts = t.createdAt;
-          if (ts && typeof ts === 'object' && 'toMillis' in ts) return (ts as Timestamp).toMillis();
-          if (ts instanceof Date) return ts.getTime();
-          return 0;
-        };
-        return getTs(b) - getTs(a);
-      });
-
-      setTasks(tasksData.slice(0, 5)); // Only show top 5
+      setLoading(true);
+      const res = await fetch('/api/tasks?limit=5', { method: 'GET' });
+      if (!res.ok) throw new Error(`Failed to fetch tasks: HTTP ${res.status}`);
+      const data = await res.json();
+      setTasks((data?.tasks || []) as Task[]);
     } catch (err) {
       console.error('[Home] Error fetching tasks:', err);
     } finally {

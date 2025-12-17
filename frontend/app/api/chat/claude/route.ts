@@ -65,11 +65,30 @@ export async function POST(req: NextRequest) {
 
     // Format memory context for system prompt
     const memoryContext = memories.length > 0
-      ? memories.map((m: { memory: string }) => `- ${m.memory}`).join('\n')
+      ? memories
+          .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+          .filter((line) => line !== '- ')
+          .join('\n')
       : 'No relevant memories found.';
 
-    // Build system prompt using master prompt system (includes core relationship memories)
-    const systemPrompt = buildSystemPrompt(context, memoryContext, coreRelationshipMemories);
+    // Build system prompt using master prompt system
+    const coreRelationshipContext =
+      coreRelationshipMemories.length > 0
+        ? coreRelationshipMemories
+            .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
+            .filter((line) => line !== '- ')
+            .join('\n')
+        : '';
+
+    const combinedMemoryContext =
+      coreRelationshipContext
+        ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
+        : memoryContext;
+
+    const systemPrompt = buildSystemPrompt({
+      memoryContext: combinedMemoryContext,
+      additionalInstructions: `Memory context namespace: ${context}`,
+    });
 
     // Get MCP tools for Claude function calling
     const tools = getMCPToolsForClaude();
@@ -140,20 +159,15 @@ export async function POST(req: NextRequest) {
           }
 
           try {
-            // MCP tools disabled - return error
+            // MCP tools disabled - return a structured error result so the loop can continue safely.
             console.warn(`[Claude API] MCP tools not available - tool ${toolUse.name} cannot be executed`);
-            throw new Error('MCP tools are not yet implemented');
-            
-            // TODO: Re-enable when MCP is implemented
-            // // Ensure userId is set in params
-            // const toolParams = {
-            //   ...toolUse.input,
-            //   userId,
-            // };
-            // // Execute tool via MCP client
-            // const toolResult = await mcp.useTool(toolName, methodName, toolParams);
+            const toolResult = {
+              error: 'MCP tools are not yet implemented',
+              tool: toolUse.name,
+              toolName,
+              methodName,
+            };
 
-            // Add tool result to conversation
             messages.push({
               role: 'user',
               content: [
@@ -161,12 +175,12 @@ export async function POST(req: NextRequest) {
                   type: 'tool_result',
                   tool_use_id: toolUse.id,
                   content: JSON.stringify(toolResult),
+                  is_error: true,
                 },
               ],
             } as any);
           } catch (error) {
             console.error(`[Claude API] Tool execution failed for ${toolUse.name}:`, error);
-            // Add error result
             messages.push({
               role: 'user',
               content: [
@@ -186,9 +200,7 @@ export async function POST(req: NextRequest) {
       } else {
         // Normal response - extract text content
         finalResponse = response;
-        const textContent = response.content.find(
-          (item: any): item is { type: 'text'; text: string } => item.type === 'text'
-        );
+        const textContent = (response.content as any[]).find((item) => item?.type === 'text') as any;
         assistantMessage = textContent?.text || '';
         break; // Exit loop
       }
@@ -197,9 +209,7 @@ export async function POST(req: NextRequest) {
     if (iteration >= maxToolIterations) {
       console.warn('[Claude API] Max tool iterations reached');
       // Use the last response even if it's a tool_use
-      const textContent = finalResponse?.content?.find(
-        (item: any): item is { type: 'text'; text: string } => item.type === 'text'
-      );
+      const textContent = ((finalResponse as any)?.content as any[] | undefined)?.find((item) => item?.type === 'text') as any;
       assistantMessage = textContent?.text || 'Maximum tool execution iterations reached.';
     }
 

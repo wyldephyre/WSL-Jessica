@@ -4,7 +4,7 @@ import { db } from '@/firebase';
 import { createCalendarEvent } from '@/lib/api/google-calendar';
 import { handleApiError, ValidationError, AuthenticationError, ExternalServiceError } from '@/lib/errors/AppError';
 import { requireAuth } from '@/lib/middleware/auth';
-import type { CalendarEvent } from '@/lib/types/event';
+import type { CalendarEvent, EventCreateRequest } from '@/lib/types/event';
 import type { CalendarType } from '@/lib/types/calendar';
 
 interface CreateCalendarEventRequestBody {
@@ -42,6 +42,25 @@ export async function POST(request: NextRequest) {
     if (!eventData.title) {
       throw new ValidationError('Event title is required');
     }
+
+    const toIso = (v: unknown): string => {
+      if (typeof v === 'string') return v;
+      if (v instanceof Date) return v.toISOString();
+      const d = new Date(v as any);
+      if (Number.isNaN(d.getTime())) throw new ValidationError('Invalid event date/time');
+      return d.toISOString();
+    };
+
+    // Normalize event payload to the shape our API client expects.
+    const eventRequest: EventCreateRequest = {
+      title: eventData.title,
+      description: eventData.description,
+      location: eventData.location,
+      attendees: eventData.attendees,
+      startTime: toIso(eventData.startTime),
+      endTime: toIso(eventData.endTime),
+      ...(eventData.calendarId ? { calendarId: eventData.calendarId } : {}),
+    };
 
     // Resolve calendar ID from calendarType if provided
     let resolvedCalendarId = calendarId || 'primary';
@@ -92,7 +111,7 @@ export async function POST(request: NextRequest) {
 
     // Create event in Google Calendar
     const createdEvent = await createCalendarEvent(
-      eventData,
+      eventRequest,
       resolvedAccessToken,
       resolvedCalendarId
     );

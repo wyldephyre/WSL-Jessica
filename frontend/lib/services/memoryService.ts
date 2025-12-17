@@ -33,15 +33,15 @@ export async function searchMemories(
   options: MemorySearchOptions
 ): Promise<Memory[]> {
   try {
-    const response = await fetch('/api/memory/search', {
+    const response = await fetch(`${env.API_URL}/memory/cloud/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-ID': options.user_id,
       },
       body: JSON.stringify({
         query,
         limit: options.limit || 10,
+        // context is currently handled inside Jessica Core / local memory layer
         ...(options.context && { context: options.context }),
       }),
     });
@@ -51,6 +51,7 @@ export async function searchMemories(
     }
 
     const data = await response.json();
+    // Jessica Core returns { results: [...] }
     return data.results || [];
   } catch (error) {
     console.error('Error searching memories:', error);
@@ -62,16 +63,19 @@ export async function searchMemories(
  * Add a new memory via backend proxy (SECURITY FIX)
  */
 export async function addMemory(memory: Memory): Promise<Memory> {
-  const response = await fetch('/api/memory/add', {
+  const response = await fetch(`${env.API_URL}/memory/cloud/add`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-User-ID': memory.user_id,
     },
     body: JSON.stringify({
       content: memory.content,
-      ...(memory.context && { context: memory.context }),
-      ...(memory.metadata && { metadata: memory.metadata }),
+      metadata: {
+        ...(memory.context ? { context: memory.context } : {}),
+        ...(memory.metadata || {}),
+        // keep user_id in metadata for traceability even in single-user mode
+        user_id: memory.user_id,
+      },
     }),
   });
 
@@ -79,7 +83,17 @@ export async function addMemory(memory: Memory): Promise<Memory> {
     throw new Error(`Failed to add memory: ${response.statusText}`);
   }
 
-  return await response.json();
+  const data = await response.json();
+  // Normalize to Memory shape (Mem0 returns provider-specific fields)
+  return {
+    content: memory.content,
+    user_id: memory.user_id,
+    context: memory.context,
+    metadata: memory.metadata,
+    id: data?.result?.id || data?.result?.memory_id || undefined,
+    created_at: data?.result?.created_at || undefined,
+    updated_at: data?.result?.updated_at || undefined,
+  };
 }
 
 /**
@@ -90,13 +104,9 @@ export async function getAllMemories(
   context?: MemoryContext
 ): Promise<Memory[]> {
   try {
-    const response = await fetch('/api/memory/all', {
+    // Jessica Core endpoint returns Mem0 cloud memories for the single-user deployment.
+    const response = await fetch(`${env.API_URL}/memory/cloud/all`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId,
-        ...(context && { 'X-Context': context }),
-      },
     });
 
     if (!response.ok) {
@@ -104,7 +114,17 @@ export async function getAllMemories(
     }
 
     const data = await response.json();
-    return data.results || [];
+    const results = (data.results || []) as any[];
+    // Best-effort normalize to our Memory shape.
+    return results.map((r) => ({
+      id: r.id || r.memory_id,
+      content: r.memory || r.content || '',
+      user_id: userId,
+      context,
+      metadata: r.metadata || undefined,
+      created_at: r.created_at || undefined,
+      updated_at: r.updated_at || undefined,
+    }));
   } catch (error) {
     console.error('Error getting all memories:', error);
     return [];
@@ -120,40 +140,27 @@ export async function updateMemory(
   userId: string,
   metadata?: Record<string, any>
 ): Promise<Memory> {
-  const response = await fetch(`/api/memory/${id}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-User-ID': userId,
-    },
-    body: JSON.stringify({
-      content,
-      ...(metadata && { metadata }),
-    }),
+  // Mem0 update is not yet exposed via Jessica Core.
+  // Foundational approach: treat updates as append-only (add a new memory).
+  await addMemory({
+    content,
+    user_id: userId,
+    metadata: { ...(metadata || {}), replaces_id: id },
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to update memory: ${response.statusText}`);
-  }
-
-  return await response.json();
+  return { id, content, user_id: userId, metadata };
 }
 
 /**
  * Delete a memory via backend proxy (SECURITY FIX)
  */
 export async function deleteMemory(id: string, userId: string): Promise<void> {
-  const response = await fetch(`/api/memory/${id}`, {
-    method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-User-ID': userId,
-    },
+  // Mem0 delete is not yet exposed via Jessica Core.
+  // Add a tombstone marker so "deletes" are still reflected in the cloud history.
+  await addMemory({
+    content: `[TOMBSTONE] delete memory id=${id}`,
+    user_id: userId,
+    metadata: { type: 'tombstone', target_id: id },
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to delete memory: ${response.statusText}`);
-  }
 }
 
 /**
