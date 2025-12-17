@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { createCalendarEvent } from '@/lib/api/google-calendar';
+import { getValidGoogleToken } from '@/lib/api/google-oauth';
 import { handleApiError, ValidationError, AuthenticationError, ExternalServiceError } from '@/lib/errors/AppError';
 import { requireAuth } from '@/lib/middleware/auth';
-import type { CalendarEvent } from '@/lib/types/event';
+import type { EventCreateRequest } from '@/lib/types/event';
 import type { CalendarType } from '@/lib/types/calendar';
 
 interface CreateCalendarEventRequestBody {
-  eventData: CalendarEvent;
+  eventData: EventCreateRequest;
   accessToken?: string;
   calendarId?: string;
   calendarType?: CalendarType;
@@ -86,8 +87,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Get valid token (refresh if needed)
     if (!resolvedAccessToken) {
-      throw new AuthenticationError('Access token is required. Please authenticate with Google.');
+      try {
+        resolvedAccessToken = await getValidGoogleToken(userId, calendarType || undefined);
+      } catch (tokenError) {
+        throw new AuthenticationError('Access token is required. Please authenticate with Google.');
+      }
+    } else {
+      // Validate and refresh token if needed (use provided token if refresh fails)
+      try {
+        resolvedAccessToken = await getValidGoogleToken(userId, calendarType || undefined);
+      } catch (tokenError) {
+        // If token refresh fails but we have an accessToken, try using it
+        // (it might still be valid - will fail gracefully if not)
+      }
     }
 
     // Create event in Google Calendar

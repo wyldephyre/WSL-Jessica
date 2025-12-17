@@ -1,37 +1,29 @@
 'use client';
 
 import { useState, useRef, KeyboardEvent } from 'react';
-
-type AIProvider = 'claude' | 'grok' | 'gemini' | 'local';
+import { ActiveProviderIndicator } from './ActiveProviderIndicator';
 
 interface ChatInputProps {
-  onSend?: (message: string, provider: AIProvider) => void;
+  onSend?: (message: string) => void;
   isLoading?: boolean;
   placeholder?: string;
+  activeProvider?: string; // Provider currently being used (e.g., 'claude', 'grok', 'jessica')
 }
-
-const providerConfig: Record<AIProvider, { name: string; color: string }> = {
-  claude: { name: 'Claude 4.5 Sonnet', color: 'text-orange-400' },
-  grok: { name: 'Grok 4', color: 'text-blue-400' },
-  gemini: { name: 'Gemini Pro', color: 'text-emerald-400' },
-  local: { name: 'Dolphin Local', color: 'text-purple-400' },
-};
 
 /**
  * ChatInput Component
  * 
- * Main chat input with model selector, mic, and attachment icons.
+ * Main chat input with mic and attachment icons.
  * Inspired by Martin AI interface design.
+ * Routing is handled automatically by the backend.
  */
-export function ChatInput({ onSend, isLoading = false, placeholder = "How can I help you today?" }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading = false, placeholder = "How can I help you today?", activeProvider }: ChatInputProps) {
   const [message, setMessage] = useState('');
-  const [provider, setProvider] = useState<AIProvider>('claude');
-  const [showDropdown, setShowDropdown] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = () => {
     if (message.trim() && onSend && !isLoading) {
-      onSend(message.trim(), provider);
+      onSend(message.trim());
       setMessage('');
       // Reset textarea height
       if (textareaRef.current) {
@@ -56,9 +48,9 @@ export function ChatInput({ onSend, isLoading = false, placeholder = "How can I 
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full relative">
       {/* Main Input Container */}
-      <div className="bg-[#1a1a1a] rounded-xl border border-gray-800/50 overflow-hidden focus-within:border-amber-500/30 focus-within:glow-amber transition-all">
+      <div className="bg-[#1a1a1a] rounded-xl border border-gray-800/50 focus-within:border-amber-500/30 focus-within:glow-amber transition-all relative">
         {/* Text Input Area */}
         <div className="p-4 pb-2">
           <textarea
@@ -76,50 +68,8 @@ export function ChatInput({ onSend, isLoading = false, placeholder = "How can I 
 
         {/* Bottom Bar */}
         <div className="px-4 pb-3 flex items-center justify-between">
-          {/* Left: Model Selector & Icons */}
+          {/* Left: Icons */}
           <div className="flex items-center gap-3">
-            {/* Model Selector Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowDropdown(!showDropdown)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800/50 hover:bg-gray-800 transition-colors text-sm"
-              >
-                <span className={providerConfig[provider].color}>
-                  {providerConfig[provider].name}
-                </span>
-                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-
-              {/* Dropdown Menu */}
-              {showDropdown && (
-                <div className="absolute top-full left-0 mt-2 w-48 bg-[#1a1a1a] border border-gray-800 rounded-lg shadow-xl overflow-y-auto z-50 animate-fade-in max-h-60">
-                  {(Object.keys(providerConfig) as AIProvider[]).map((key) => (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        setProvider(key);
-                        setShowDropdown(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-800/50 transition-colors flex items-center justify-between ${
-                        provider === key ? 'bg-gray-800/30' : ''
-                      }`}
-                    >
-                      <span className={providerConfig[key].color}>
-                        {providerConfig[key].name}
-                      </span>
-                      {provider === key && (
-                        <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* Attachment Icon */}
             <button className="p-2 text-gray-500 hover:text-gray-300 transition-colors rounded-lg hover:bg-gray-800/50">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,15 +107,10 @@ export function ChatInput({ onSend, isLoading = false, placeholder = "How can I 
             )}
           </button>
         </div>
+        
+        {/* Active Provider Indicator - Lower Left Corner */}
+        <ActiveProviderIndicator provider={activeProvider || ''} isLoading={isLoading} />
       </div>
-
-      {/* Click outside to close dropdown */}
-      {showDropdown && (
-        <div 
-          className="fixed inset-0 z-40" 
-          onClick={() => setShowDropdown(false)}
-        />
-      )}
     </div>
   );
 }

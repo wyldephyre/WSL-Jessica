@@ -18,6 +18,19 @@ export interface MemorySearchOptions {
 }
 
 /**
+ * Get the base URL for API calls
+ * Uses absolute URL when running server-side (Next.js API routes)
+ */
+function getApiBaseUrl(): string {
+  // Server-side: use localhost:3000 (Next.js dev server)
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+  }
+  // Client-side: use relative URL
+  return '';
+}
+
+/**
  * DEPRECATED: Direct memory client removed for security
  * All memory operations now go through backend routes
  */
@@ -33,7 +46,8 @@ export async function searchMemories(
   options: MemorySearchOptions
 ): Promise<Memory[]> {
   try {
-    const response = await fetch('/api/memory/search', {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/memory/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +76,8 @@ export async function searchMemories(
  * Add a new memory via backend proxy (SECURITY FIX)
  */
 export async function addMemory(memory: Memory): Promise<Memory> {
-  const response = await fetch('/api/memory/add', {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/memory/add`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -90,7 +105,8 @@ export async function getAllMemories(
   context?: MemoryContext
 ): Promise<Memory[]> {
   try {
-    const response = await fetch('/api/memory/all', {
+    const baseUrl = getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/memory/all`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -120,7 +136,8 @@ export async function updateMemory(
   userId: string,
   metadata?: Record<string, any>
 ): Promise<Memory> {
-  const response = await fetch(`/api/memory/${id}`, {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/memory/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -143,7 +160,8 @@ export async function updateMemory(
  * Delete a memory via backend proxy (SECURITY FIX)
  */
 export async function deleteMemory(id: string, userId: string): Promise<void> {
-  const response = await fetch(`/api/memory/${id}`, {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}/api/memory/${id}`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',

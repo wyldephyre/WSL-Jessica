@@ -4,7 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createMCPClient, getMCPServer } from '@/lib/mcp';
+// MCP temporarily disabled - module not yet implemented
+// import { createMCPClient, getMCPServer } from '@/lib/mcp';
 import { requireAuth } from '@/lib/middleware/auth';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
 import { z } from 'zod';

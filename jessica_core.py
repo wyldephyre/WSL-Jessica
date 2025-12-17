@@ -5,6 +5,7 @@ import threading
 import logging
 import time
 import uuid
+import json
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -14,26 +15,41 @@ from typing import Optional, Dict, List, Tuple
 from dotenv import load_dotenv
 from exceptions import ValidationError, ServiceUnavailableError, MemoryError, ExternalAPIError
 from retry_utils import retry_with_backoff, retry_on_timeout
+from command_parser import extract_command_intent
 
 # Load environment variables from .env file BEFORE accessing them
 # This fixes the issue where bashrc exports don't reach non-interactive shells
 load_dotenv()
 
+# #region agent log
+try:
+    with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+        import json, time
+        f.write(json.dumps({"sessionId":"debug-session","runId":"startup","hypothesisId":"A","location":"jessica_core.py:21","message":"After load_dotenv - checking MEM0_API_KEY","data":{"MEM0_API_KEY_from_env":bool(os.getenv("MEM0_API_KEY")),"MEM0_API_KEY_length":len(os.getenv("MEM0_API_KEY","")) if os.getenv("MEM0_API_KEY") else 0},"timestamp":int(time.time()*1000)}) + '\n')
+except: pass
+# #endregion
+
 # Configure logging with structured format
+# Use simple format for basicConfig (before Flask context exists)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Custom formatter to handle missing request_id
+# Custom formatter to handle missing request_id (only used after Flask starts)
 class RequestIDFormatter(logging.Formatter):
     def format(self, record):
         if not hasattr(record, 'request_id'):
-            record.request_id = getattr(g, 'request_id', 'N/A')
+            try:
+                from flask import g
+                record.request_id = getattr(g, 'request_id', 'N/A')
+            except (RuntimeError, AttributeError):
+                # Flask context not available yet
+                record.request_id = 'N/A'
         return super().format(record)
 
-# Apply custom formatter
+# Apply custom formatter (will be used for Flask request logs)
 handler = logging.StreamHandler()
 handler.setFormatter(RequestIDFormatter('%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'))
 logger.addHandler(handler)
@@ -83,6 +99,12 @@ def before_request():
 # Connection pooling for HTTP requests
 http_session = requests.Session()
 
+# Thread memory: track last detected importance per user
+# Key: user_id, Value: last_importance_level ('important' or 'general')
+_conversation_thread_memory: Dict[str, str] = {}
+THREAD_MEMORY_TIMEOUT = 300  # 5 minutes - if no message for 5 min, reset thread
+_thread_last_activity: Dict[str, float] = {}  # Track last message time per user
+
 # =============================================================================
 # SERVICE ENDPOINTS
 # =============================================================================
@@ -97,6 +119,14 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 GOOGLE_AI_API_KEY = os.getenv("GOOGLE_AI_API_KEY")
 MEM0_API_KEY = os.getenv("MEM0_API_KEY")
+
+# #region agent log
+try:
+    with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+        import json, time
+        f.write(json.dumps({"sessionId":"debug-session","runId":"startup","hypothesisId":"B","location":"jessica_core.py:109","message":"API keys loaded","data":{"ANTHROPIC_SET":bool(ANTHROPIC_API_KEY),"XAI_SET":bool(XAI_API_KEY),"GOOGLE_SET":bool(GOOGLE_AI_API_KEY),"MEM0_SET":bool(MEM0_API_KEY),"MEM0_LENGTH":len(MEM0_API_KEY) if MEM0_API_KEY else 0,"MEM0_PREFIX":MEM0_API_KEY[:5] if MEM0_API_KEY and len(MEM0_API_KEY) >= 5 else "N/A"},"timestamp":int(time.time()*1000)}) + '\n')
+except: pass
+# #endregion
 
 # =============================================================================
 # MEM0 CONFIGURATION
@@ -115,7 +145,9 @@ FALLBACK_OLLAMA_MODEL = "qwen2.5:32b"
 
 # Jessica Modes - different specialized models for different contexts
 JESSICA_MODES = {
-    "default": "jessica",           # Core personality, general use
+    "default": "auto-detect",  # Will auto-detect importance and choose model
+    "fast": "qwen2.5:32b",  # Explicit fast mode (Qwen 32B)
+    "important": "nous-hermes2:34b-yi-q4_K_M",  # Explicit important mode (Hermes 34B)
     "business": "jessica-business", # WyldePhyre operations focus
     # Future modes:
     # "writing": "jessica-writing",   # Nexus Arcanum creative writing
@@ -124,7 +156,8 @@ JESSICA_MODES = {
 
 # Timeouts (configurable via environment variables)
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
-LOCAL_SERVICE_TIMEOUT = int(os.getenv("LOCAL_SERVICE_TIMEOUT", "5"))
+# Increased timeout for memory operations - ONNX embedding model loading can take 10-15s on first use
+LOCAL_SERVICE_TIMEOUT = int(os.getenv("LOCAL_SERVICE_TIMEOUT", "20"))
 HEALTH_CHECK_TIMEOUT = int(os.getenv("HEALTH_CHECK_TIMEOUT", "2"))
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))  # 5 min for 32B model first load
 MEM0_TIMEOUT = int(os.getenv("MEM0_TIMEOUT", "30"))
@@ -615,24 +648,68 @@ DOCUMENT_KEYWORDS = {
     "definition", "what is", "explain briefly"
 }
 
+# Keywords that indicate important/serious conversations (triggers Hermes 34B)
+IMPORTANT_CONVERSATION_KEYWORDS = {
+    "crisis", "emergency", "mental health", "ptsd", "tbi", "bipolar",
+    "mission brief", "strategy", "business decision", "critical",
+    "serious", "important", "urgent"
+}
+
+# Keywords that indicate general/banter conversations (triggers Qwen 32B)
+GENERAL_CONVERSATION_KEYWORDS = {
+    "hey", "what's up", "sup", "banter", "quick question",
+    "just checking", "casual", "chit chat"
+}
+
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
 
 def detect_routing_tier(message: str, explicit_directive: str = None) -> tuple:
-    """Three-tier routing logic (optimized)"""
-    # Handle explicit directives first (fast path)
+    """
+    Enhanced routing logic with command detection.
+    Priority order:
+    1. Explicit directive from request (if provided)
+    2. Command parser (explicit routing commands)
+    3. Command parser (natural language routing)
+    4. Keyword-based routing (fallback)
+    5. Default to local
+    """
+    # Handle explicit directives from request first (highest priority)
     if explicit_directive:
         directive_map = {
             "claude": ("claude", 2, "User requested Claude"),
             "grok": ("grok", 2, "User requested Grok"),
             "gemini": ("gemini", 2, "User requested Gemini"),
-            "local": ("local", 2, "User requested local processing")
+            "local": ("local", 2, "User requested local processing"),
+            "auto": None  # Will fall through to command detection
         }
-        return directive_map.get(explicit_directive, ("local", 1, "Standard task - using local Dolphin"))
+        result = directive_map.get(explicit_directive)
+        if result:
+            return result
+        # If 'auto', continue to command detection
     
-    # Optimized keyword detection - check substring matches efficiently
-    # Convert to lowercase once and reuse
+    # Extract command intent (includes explicit routing, natural routing, and actions)
+    command_intent = extract_command_intent(message)
+    
+    # Check for explicit routing command
+    if command_intent["routing"]["command_type"] == "explicit":
+        provider = command_intent["routing"]["provider"]
+        reason = command_intent["routing"]["reason"]
+        return (provider, 2, reason)
+    
+    # Check for natural language routing
+    if command_intent["routing"]["command_type"] == "natural":
+        provider = command_intent["routing"]["provider"]
+        reason = command_intent["routing"]["reason"]
+        return (provider, 1, reason)
+    
+    # Check for action commands (may need special routing, but fall back to keywords)
+    if command_intent["routing"]["command_type"] == "action":
+        # Action commands might need specific routing, but for now use keyword fallback
+        pass
+    
+    # Fall back to keyword-based routing
     message_lower = message.lower()
     
     # Check each keyword set (early exit on first match)
@@ -648,7 +725,64 @@ def detect_routing_tier(message: str, explicit_directive: str = None) -> tuple:
         if kw in message_lower:
             return ("gemini", 1, "Document/lookup task - using Gemini")
     
+    # Default to local
     return ("local", 1, "Standard task - using local Dolphin")
+
+
+def detect_conversation_importance(message: str) -> str:
+    """
+    Detect if conversation is important (needs Hermes 34B) or general (can use Qwen 32B).
+    
+    Returns:
+        'important' - Use Hermes 34B (slower, better reasoning)
+        'general' - Use Qwen 32B (faster, still has personality)
+    
+    Defaults to 'important' for safety (better slow than wrong).
+    """
+    message_lower = message.lower()
+    
+    # Check for general/banter keywords first (explicit fast mode)
+    for kw in GENERAL_CONVERSATION_KEYWORDS:
+        if kw in message_lower:
+            return 'general'
+    
+    # Check for important keywords
+    for kw in IMPORTANT_CONVERSATION_KEYWORDS:
+        if kw in message_lower:
+            return 'important'
+    
+    # Default to important (safer, slower)
+    return 'important'
+
+
+def get_thread_importance(user_id: str, current_message: str) -> str:
+    """
+    Get importance level for current message, using thread memory if available.
+    
+    If thread exists and is recent (< 5 min), use thread's importance.
+    Otherwise, detect fresh and update thread memory.
+    """
+    current_time = time.time()
+    
+    # Check if thread exists and is still active
+    if user_id in _conversation_thread_memory:
+        last_activity = _thread_last_activity.get(user_id, 0)
+        if current_time - last_activity < THREAD_MEMORY_TIMEOUT:
+            # Thread is active, use thread's importance level
+            _thread_last_activity[user_id] = current_time
+            return _conversation_thread_memory[user_id]
+        else:
+            # Thread expired, detect fresh
+            importance = detect_conversation_importance(current_message)
+            _conversation_thread_memory[user_id] = importance
+            _thread_last_activity[user_id] = current_time
+            return importance
+    else:
+        # New thread, detect and store
+        importance = detect_conversation_importance(current_message)
+        _conversation_thread_memory[user_id] = importance
+        _thread_last_activity[user_id] = current_time
+        return importance
 
 
 def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAULT_OLLAMA_MODEL, 
@@ -664,6 +798,13 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
     Custom models (jessica, jessica-business) have personality baked in via Modelfile.
     Fallback models (qwen2.5:32b) are generic and need the full system prompt.
     """
+    # #region agent log
+    try:
+        with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+            import json, time
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:788","message":"call_local_ollama entry","data":{"model":model,"ollamaUrl":OLLAMA_URL},"timestamp":int(time.time()*1000)}) + '\n')
+    except: pass
+    # #endregion
     def try_model(model_name: str, prompt: str) -> tuple:
         """Try to call a specific model with given system prompt, return (success, response)"""
         payload = {
@@ -681,20 +822,67 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
         logger.info(f"System prompt length: {len(prompt)} characters")
         logger.info(f"User message: {user_message}")
         
-        response = http_session.post(
-            f"{OLLAMA_URL}/api/generate",
-            json=payload,
-            timeout=OLLAMA_TIMEOUT
-        )
-        response.raise_for_status()
-        data = response.json()
-        return True, data.get('response', 'Error: No response from local model')
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"jessica_core.py:819","message":"Before Ollama request","data":{"model":model_name,"url":f"{OLLAMA_URL}/api/generate"},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
+        try:
+            response = http_session.post(
+                f"{OLLAMA_URL}/api/generate",
+                json=payload,
+                timeout=OLLAMA_TIMEOUT
+            )
+            # #region agent log
+            try:
+                with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                    import json, time
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"jessica_core.py:824","message":"Ollama response received","data":{"statusCode":response.status_code,"hasResponse":bool(response)},"timestamp":int(time.time()*1000)}) + '\n')
+            except: pass
+            # #endregion
+            response.raise_for_status()
+            data = response.json()
+            return True, data.get('response', 'Error: No response from local model')
+        except requests.exceptions.Timeout as e:
+            # #region agent log
+            try:
+                with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                    import json, time
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"jessica_core.py:828","message":"Ollama timeout","data":{"error":str(e)},"timestamp":int(time.time()*1000)}) + '\n')
+            except: pass
+            # #endregion
+            raise
+        except Exception as e:
+            # #region agent log
+            try:
+                with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                    import json, time
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"jessica_core.py:830","message":"Ollama request exception","data":{"errorType":type(e).__name__,"errorMessage":str(e)},"timestamp":int(time.time()*1000)}) + '\n')
+            except: pass
+            # #endregion
+            raise
     
     # Try primary model first (custom models have personality baked in)
     try:
         success, response = try_model(model, system_prompt)
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:834","message":"Primary model success","data":{"model":model,"responseLength":len(response) if response else 0},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         return response
     except Exception as e:
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:837","message":"Primary model failed","data":{"model":model,"error":str(e),"willTryFallback":model != FALLBACK_OLLAMA_MODEL},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         logger.warning(f"Primary model {model} failed: {e}")
         
         # Try fallback if different from primary
@@ -707,6 +895,13 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
                 success, response = try_model(FALLBACK_OLLAMA_MODEL, fallback_prompt)
                 return response
             except Exception as e2:
+                # #region agent log
+                try:
+                    with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                        import json, time
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:849","message":"Fallback model also failed","data":{"fallbackModel":FALLBACK_OLLAMA_MODEL,"error":str(e2)},"timestamp":int(time.time()*1000)}) + '\n')
+                except: pass
+                # #endregion
                 logger.error(f"Fallback model also failed: {e2}")
         
         return f"Error calling local Ollama: {str(e)}"
@@ -858,7 +1053,21 @@ def mem0_add_memory(content: str, user_id: str, metadata: dict = None) -> dict:
         user_id: User ID (required, no fallback)
         metadata: Optional metadata dict
     """
+    # #region agent log
+    try:
+        with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+            import json, time
+            f.write(json.dumps({"sessionId":"debug-session","runId":"mem0_add","hypothesisId":"C","location":"jessica_core.py:869","message":"mem0_add_memory entry","data":{"MEM0_API_KEY_set":bool(MEM0_API_KEY),"MEM0_API_KEY_length":len(MEM0_API_KEY) if MEM0_API_KEY else 0,"user_id":user_id[:10] if user_id else "N/A"},"timestamp":int(time.time()*1000)}) + '\n')
+    except: pass
+    # #endregion
     if not MEM0_API_KEY:
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"mem0_add","hypothesisId":"C","location":"jessica_core.py:870","message":"MEM0_API_KEY not configured - returning error","data":{"os_getenv_check":bool(os.getenv("MEM0_API_KEY"))},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         return {"error": "MEM0_API_KEY not configured"}
     
     # SECURITY FIX: user_id is required - no fallback
@@ -992,8 +1201,15 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
     memory_id = hashlib.sha256((user_message + jessica_response + timestamp).encode()).hexdigest()
     
     # Store in local ChromaDB
+    # #region agent log
     try:
-        http_session.post(
+        with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"store","hypothesisId":"A","location":"jessica_core.py:995","message":"Before memory store request","data":{"MEMORY_URL":MEMORY_URL,"timeout":LOCAL_SERVICE_TIMEOUT,"memory_id":memory_id[:8]},"timestamp":int(time.time()*1000)}) + '\n')
+    except: pass
+    # #endregion
+    try:
+        store_start = time.time()
+        response = http_session.post(
             f"{MEMORY_URL}/store",
             json={
                 "id": memory_id,
@@ -1003,7 +1219,20 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
             },
             timeout=LOCAL_SERVICE_TIMEOUT
         )
+        store_duration = time.time() - store_start
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"store","hypothesisId":"A","location":"jessica_core.py:1007","message":"After memory store request","data":{"duration_ms":store_duration*1000,"status_code":response.status_code},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
     except Exception as e:
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"store","hypothesisId":"A","location":"jessica_core.py:1010","message":"Memory store exception","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         logger.error(f"Local memory store failed: {e}")
     
     # Store in Mem0 cloud
@@ -1110,6 +1339,13 @@ def _load_local_prompt():
 @limiter.limit(RATE_LIMIT_CHAT)
 def chat():
     """Main chat endpoint with error handling"""
+    # #region agent log
+    try:
+        with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+            import json, time
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"jessica_core.py:1284","message":"chat endpoint entry","data":{"hasJson":bool(request.json),"method":request.method},"timestamp":int(time.time()*1000)}) + '\n')
+    except: pass
+    # #endregion
     try:
         # Input validation
         if not request.json:
@@ -1120,6 +1356,13 @@ def chat():
         
         data = request.json
         user_message = data['message']
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"jessica_core.py:1295","message":"Message extracted","data":{"messageLength":len(user_message) if isinstance(user_message,str) else 0,"hasProvider":'provider' in data,"provider":data.get('provider')},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         
         if not isinstance(user_message, str) or len(user_message.strip()) == 0:
             raise ValidationError("Message must be a non-empty string")
@@ -1136,14 +1379,48 @@ def chat():
         
         # Get the appropriate model for the selected mode
         active_model = JESSICA_MODES.get(jessica_mode, JESSICA_MODES['default'])
-        logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
+        
+        # Handle auto-detect mode
+        if active_model == "auto-detect":
+            # Use thread memory to get importance level
+            thread_importance = get_thread_importance(user_id, user_message)
+            if thread_importance == 'important':
+                active_model = "nous-hermes2:34b-yi-q4_K_M"
+            else:
+                active_model = "qwen2.5:32b"
+            logger.info(f"Auto-detected importance: {thread_importance} -> Model: {active_model}")
+        else:
+            logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
         
         # Load prompts (cached, no file I/O on every request)
         master_prompt = _load_master_prompt()     # Full prompt for Claude
         local_prompt = _load_local_prompt()       # Condensed prompt for local Ollama
         
         memory_context = recall_memory_dual(user_message, user_id)
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"jessica_core.py:1329","message":"Memory recall completed","data":{"localMemories":len(memory_context.get("local",[])),"cloudMemories":len(memory_context.get("cloud",[]))},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
+        
+        # Extract command intent for routing and action detection
+        command_intent = extract_command_intent(user_message)
+        
+        # Use command intent for routing (detect_routing_tier will use it internally too)
         provider, tier, reason = detect_routing_tier(user_message, explicit_directive)
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"jessica_core.py:1335","message":"Routing determined","data":{"provider":provider,"tier":tier,"activeModel":active_model},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
+        
+        # Get command type and action info from intent
+        command_type = command_intent["routing"]["command_type"]
+        action_info = command_intent.get("action")
     
         # Optimized context building using list join
         context_parts = []
@@ -1170,9 +1447,17 @@ def chat():
         gemini_system_prompt = f"{GEMINI_SYSTEM_PROMPT}{context_text}"
         gemini_user_message = f"User: {user_message}"
         
+        # Detect if model is a custom "jessica" model (has personality baked in) vs generic model
+        is_custom_jessica_model = active_model.startswith("jessica")
+        
         # For Ollama: Custom "jessica" model has master_prompt baked in
         # Only send memory context, not the full prompt (saves tokens, faster!)
-        local_ollama_prompt = context_text if context_text else ""
+        # Generic models (nous-hermes2, qwen2.5, dolphin, etc.) need full personality prompt!
+        if is_custom_jessica_model:
+            local_ollama_prompt = context_text if context_text else ""
+        else:
+            # Generic models need full system prompt - this is CRITICAL for Jessica's personality!
+            local_ollama_prompt = f"{local_prompt}{context_text}"
         
         # Fallback prompt for generic models (qwen2.5:32b) - they need full personality!
         # Uses local_prompt (condensed version optimized for local models) + memory context
@@ -1186,17 +1471,45 @@ def chat():
             "grok": lambda: call_grok_api(user_message, grok_system_prompt),
             "gemini": lambda: call_gemini_api(gemini_user_message, gemini_system_prompt)
         }
-    
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:1391","message":"Before provider call","data":{"provider":provider,"hasProviderInMap":provider in provider_map},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         response_text = provider_map.get(provider, provider_map["local"])()
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"jessica_core.py:1391","message":"After provider call","data":{"responseLength":len(response_text) if response_text else 0,"hasError":response_text.startswith("Error") if response_text else False},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         
         # Non-blocking memory storage with user isolation
         store_memory_dual(user_message, response_text, provider, user_id)
         
-        return jsonify({
+        # Build response with enhanced routing metadata
+        response_data = {
             "response": response_text,
-            "routing": {"provider": provider, "tier": tier, "reason": reason},
+            "routing": {
+                "provider": provider,
+                "tier": tier,
+                "reason": reason,
+                "command_type": command_type
+            },
             "request_id": g.request_id
-        })
+        }
+        
+        # Add action info if action command was detected
+        if action_info:
+            response_data["action_detected"] = {
+                "type": action_info["type"],
+                "message": action_info["message"]
+            }
+        
+        return jsonify(response_data)
     except ValidationError as e:
         logger.warning(f"Validation error: {e.message}")
         return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
@@ -1204,6 +1517,13 @@ def chat():
         logger.error(f"Service error: {e.message}")
         return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
     except Exception as e:
+        # #region agent log
+        try:
+            with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+                import json, time
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"jessica_core.py:1422","message":"Exception caught in chat","data":{"errorType":type(e).__name__,"errorMessage":str(e)},"timestamp":int(time.time()*1000)}) + '\n')
+        except: pass
+        # #endregion
         logger.error(f"Unexpected error in chat endpoint: {type(e).__name__}: {str(e)}", exc_info=True)
         return jsonify({
             "error": "An unexpected error occurred",

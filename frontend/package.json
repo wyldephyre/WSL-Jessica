@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.68.0",
     "@google-cloud/speech": "^7.2.1",
     "@google/generative-ai": "^0.24.1",
+    "googleapis": "^144.0.0",
     "@vercel/blob": "^2.0.0",
     "axios": "^1.13.1",
     "date-fns": "^4.1.0",

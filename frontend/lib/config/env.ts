@@ -21,5 +21,14 @@ export const env = {
 
   // Backend API
   API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+
+  // Google OAuth (server-side only)
+  // Required scopes:
+  // - https://www.googleapis.com/auth/calendar (Calendar read/write)
+  // - https://www.googleapis.com/auth/gmail.readonly (Gmail read)
+  // - https://www.googleapis.com/auth/documents (Docs read/write)
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
+  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/google/callback',
 } as const;
 

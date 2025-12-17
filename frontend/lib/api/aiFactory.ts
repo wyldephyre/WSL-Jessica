@@ -10,6 +10,19 @@ export interface AIProviderResponse {
 }
 
 /**
+ * Get the base URL for API calls
+ * Uses absolute URL when running server-side (Next.js API routes)
+ */
+function getApiBaseUrl(): string {
+  // Server-side: use localhost:3000 (Next.js dev server)
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+  }
+  // Client-side: use relative URL
+  return '';
+}
+
+/**
  * Call AI provider via backend routes (SECURITY FIX: No more direct API access)
  */
 export async function callAIProvider(
@@ -25,9 +38,11 @@ export async function callAIProvider(
     ...(systemPrompt && { systemPrompt }),
   };
 
+  const baseUrl = getApiBaseUrl();
+
   switch (provider) {
     case 'claude': {
-      const response = await fetch('/api/chat/claude', {
+      const response = await fetch(`${baseUrl}/api/chat/claude`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -47,7 +62,7 @@ export async function callAIProvider(
     }
 
     case 'gemini': {
-      const response = await fetch('/api/chat/gemini', {
+      const response = await fetch(`${baseUrl}/api/chat/gemini`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +82,7 @@ export async function callAIProvider(
     }
 
     case 'grok': {
-      const response = await fetch('/api/chat/grok', {
+      const response = await fetch(`${baseUrl}/api/chat/grok`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -87,41 +102,27 @@ export async function callAIProvider(
     }
 
     case 'local': {
-      // Call Jessica Core backend
-      const apiUrl = env.API_URL || 'http://localhost:8000';
-      const payload = {
-        message,
-        provider: 'local',
-      };
-      
-      // Debug logging (server-side only)
-      if (typeof window === 'undefined') {
-        console.log('[AI Factory] Calling backend:', apiUrl, 'Payload:', JSON.stringify(payload));
-      }
-      
-      const response = await fetch(`${apiUrl}/chat`, {
+      // Call local provider through Next.js API route (server-side proxy)
+      // This ensures proper routing through WSL network stack
+      const response = await fetch(`${baseUrl}/api/chat/local`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          message,
+          provider: 'local',
+          ...(systemPrompt && { systemPrompt }),
+        }),
       });
 
       if (!response.ok) {
-        // Try to get error details from response
-        let errorMessage = `Local API error: ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
-        } catch (e) {
-          // If JSON parsing fails, use status text
-        }
-        throw new Error(errorMessage);
+        throw new Error(`Local API error: ${response.statusText}`);
       }
 
       const data = await response.json();
       return {
-        content: data.response || '',
+        content: data.content || data.response || '',
         provider: 'local',
       };
     }

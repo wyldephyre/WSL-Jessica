@@ -4,7 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createMCPClient } from '@/lib/mcp';
+// MCP temporarily disabled - module not yet implemented
+// import { createMCPClient } from '@/lib/mcp';
 import { requireAuth } from '@/lib/middleware/auth';
 
 export async function GET(request: NextRequest) {
