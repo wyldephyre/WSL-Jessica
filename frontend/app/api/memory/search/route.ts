@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       const data = await response.json();
       
       // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/ef4ed018-1c21-4582-b1cc-90858e772b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'memory/search/route.ts:44','message':'Memory server response received','data':{hasDocuments:!!data.documents,documentsType:typeof data.documents,isArray:Array.isArray(data.documents),documentsLength:data.documents?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'memory/search/route.ts:44','message':'Memory server response received','data':{hasDocuments:!!data.documents,documentsType:typeof data.documents,isArray:Array.isArray(data.documents),documentsLength:data.documents?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       
       // Transform memory server response to frontend format
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       // Frontend expects: { results: [{ memory: string, ... }] }
       const documents = Array.isArray(data.documents) ? data.documents : [];
       // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/ef4ed018-1c21-4582-b1cc-90858e772b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'memory/search/route.ts:50','message':'Documents extracted','data':{documentsLength:documents.length,firstDocType:typeof documents[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'memory/search/route.ts:50','message':'Documents extracted','data':{documentsLength:documents.length,firstDocType:typeof documents[0]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       const results = documents.map((doc: string, index: number) => ({
         memory: doc,

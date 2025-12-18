@@ -78,7 +78,7 @@ check_port() {
     return 0
 }
 
-check_port 5000 "Whisper Server" || exit 1
+# check_port 5000 "Whisper Server" || exit 1  # DISABLED - using external voice solution
 check_port 5001 "Memory Server" || exit 1
 check_port 8000 "Jessica Core" || exit 1
 
@@ -101,22 +101,20 @@ if ! kill -0 $MEMORY_PID 2>/dev/null; then
     exit 1
 fi
 
-# Start Whisper Server (port 5000)
-echo -e "${GREEN}Starting Whisper Server (port 5000)...${NC}"
-python3 whisper_server.py > logs/whisper-server.log 2>&1 &
-WHISPER_PID=$!
-echo "Whisper Server PID: $WHISPER_PID"
-
-# Wait a moment for whisper server to start
-sleep 2
-
-# Check if whisper server started successfully
-if ! kill -0 $WHISPER_PID 2>/dev/null; then
-    echo -e "${RED}ERROR: Whisper Server failed to start!${NC}"
-    echo "Check logs/whisper-server.log"
-    kill $MEMORY_PID 2>/dev/null || true
-    exit 1
-fi
+# DISABLED - Whisper Server (port 5000) - using external voice solution
+# echo -e "${GREEN}Starting Whisper Server (port 5000)...${NC}"
+# python3 whisper_server.py > logs/whisper-server.log 2>&1 &
+# WHISPER_PID=$!
+# echo "Whisper Server PID: $WHISPER_PID"
+# sleep 2
+# if ! kill -0 $WHISPER_PID 2>/dev/null; then
+#     echo -e "${RED}ERROR: Whisper Server failed to start!${NC}"
+#     echo "Check logs/whisper-server.log"
+#     kill $MEMORY_PID 2>/dev/null || true
+#     exit 1
+# fi
+WHISPER_PID="N/A"
+echo -e "${YELLOW}Whisper Server DISABLED - using external voice solution${NC}"
 
 # Start Jessica Core (port 8000)
 echo -e "${GREEN}Starting Jessica Core (port 8000)...${NC}"
@@ -153,12 +151,12 @@ check_service() {
 }
 
 check_service "http://localhost:5001/health" "Memory Server" || echo -e "${YELLOW}Memory Server may still be starting...${NC}"
-check_service "http://localhost:5000/health" "Whisper Server" || echo -e "${YELLOW}Whisper Server may still be starting...${NC}"
+# check_service "http://localhost:5000/health" "Whisper Server" || echo -e "${YELLOW}Whisper Server may still be starting...${NC}"  # DISABLED
 check_service "http://localhost:8000/status" "Jessica Core" || echo -e "${YELLOW}Jessica Core may still be starting...${NC}"
 
 # Save PIDs to file for easy shutdown
 echo "$MEMORY_PID" > /tmp/jessica-memory.pid
-echo "$WHISPER_PID" > /tmp/jessica-whisper.pid
+# echo "$WHISPER_PID" > /tmp/jessica-whisper.pid  # DISABLED
 echo "$JESSICA_PID" > /tmp/jessica-core.pid
 
 echo ""
@@ -168,7 +166,7 @@ echo -e "${GREEN}========================================${NC}"
 echo ""
 echo "Service PIDs:"
 echo "  Memory Server:  $MEMORY_PID (port 5001)"
-echo "  Whisper Server: $WHISPER_PID (port 5000)"
+echo "  Whisper Server: DISABLED (using external voice)"
 echo "  Jessica Core:   $JESSICA_PID (port 8000)"
 echo ""
 echo "Logs:"

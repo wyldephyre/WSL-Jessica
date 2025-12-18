@@ -1,4 +1,4 @@
-`import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { callAIProvider, AIProvider } from '@/lib/api/aiFactory';
 import { searchMemories, addConversation, addConversationToMultipleContexts, getCoreRelationshipMemories } from '@/lib/services/memoryService';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
@@ -22,13 +22,13 @@ import { env } from '@/lib/config/env';
  */
 async function callLocalBackend(message: string, mode: string = 'default'): Promise<{ content: string; routing?: any; request_id?: string }> {
   // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:23',message:'callLocalBackend entry',data:{messageLength:message.length,mode,backendUrl:env.API_URL||'http://localhost:8000'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:23',message:'callLocalBackend entry',data:{messageLength:message.length,mode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
   const backendUrl = env.API_URL || 'http://localhost:8000';
   const backendEndpoint = `${backendUrl}/chat`;
 
   // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:27',message:'Before fetch to backend',data:{endpoint:backendEndpoint,hasMessage:!!message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:27',message:'Before fetch to backend',data:{endpoint:backendEndpoint},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
   // #endregion
   const response = await fetch(backendEndpoint, {
     method: 'POST',
@@ -43,22 +43,22 @@ async function callLocalBackend(message: string, mode: string = 'default'): Prom
   });
   
   // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:39',message:'After fetch response',data:{ok:response.ok,status:response.status,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:39',message:'After fetch response',data:{ok:response.ok,status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
   // #endregion
   if (!response.ok) {
     // #region agent log
-    fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:40',message:'Response not OK',data:{status:response.status,statusText:response.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:40',message:'Response not OK',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     const errorData = await response.json().catch(() => ({}));
     // #region agent log
-    fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:41',message:'Error data parsed',data:{hasError:!!errorData.error,errorMessage:errorData.error,errorCode:errorData.error_code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:41',message:'Backend error details',data:{error:errorData.error,errorCode:errorData.error_code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
     // #endregion
     throw new Error(errorData.error || `Backend error: ${response.statusText}`);
   }
 
   const data = await response.json();
   // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/f525aa39-305d-4bbd-b5e9-1f2eff02c2de',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:44',message:'Success response parsed',data:{hasResponse:!!data.response,hasRouting:!!data.routing,provider:data.routing?.provider},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:44',message:'Backend success',data:{hasResponse:!!data.response,provider:data.routing?.provider},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
   // #endregion
   return {
     content: data.response || '',
@@ -81,6 +81,9 @@ async function getGoogleToken(userId: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
+  // #region agent log
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:84',message:'POST handler entry',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   try {
     // Single-user system: Use constant user ID (backend handles this, but we need it for memory storage)
     // TODO: For multi-user, restore requireAuth(req)
@@ -88,16 +91,21 @@ export async function POST(req: NextRequest) {
     try {
       const authResult = await requireAuth(req);
       userId = authResult.userId;
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:92',message:'Auth succeeded',data:{userId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
     } catch (authError) {
       // Single-user mode: Use constant user ID if auth fails
       // Backend uses USER_ID constant, but frontend memory service needs a user ID
       userId = 'PhyreBug'; // Match backend USER_ID constant
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:98',message:'Auth failed, using default',data:{userId,error:String(authError)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
     }
     
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/ef4ed018-1c21-4582-b1cc-90858e772b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:79',message:'Destructuring message from request',data:{isConst:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     let { message, context = 'personal' as MemoryContext, provider = 'auto' as AIProvider, memoryStorageContexts } = await req.json();
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:103',message:'Request parsed',data:{messageLength:message?.length,provider,context},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
     
     // Always use 'auto' provider - backend handles intelligent routing based on commands
     const routingProvider = 'auto';
@@ -278,7 +286,7 @@ export async function POST(req: NextRequest) {
           ).join('\n');
 
           // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/ef4ed018-1c21-4582-b1cc-90858e772b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:256',message:'Attempting to append to message (Gmail list)',data:{messageLength:message.length,emailCount:result.messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:256',message:'Attempting to append to message (Gmail list)',data:{messageLength:message.length,emailCount:result.messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
           // #endregion
           message += `\n\nHere are your emails:\n${emailSummary}`;
         } else if (gmailIntent.action === 'read' && gmailIntent.messageId) {
@@ -346,7 +354,7 @@ export async function POST(req: NextRequest) {
             message: 'Content appended to document',
           };
           // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/ef4ed018-1c21-4582-b1cc-90858e772b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:321',message:'Attempting to append to message (Docs append)',data:{messageLength:message.length,documentTitle:document.title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:321',message:'Attempting to append to message (Docs append)',data:{messageLength:message.length,documentTitle:document.title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
           // #endregion
           message += `\n\n✅ Content added to document "${document.title}"`;
         }
@@ -382,11 +390,16 @@ export async function POST(req: NextRequest) {
 
     // Backend handles intelligent routing - always use 'auto' to let backend decide
     const actualProvider = routingProvider === 'auto' ? 'local' : routingProvider;
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:394',message:'Before AI call',data:{actualProvider,messageLength:message?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
 
     // Call AI provider - use direct backend call for local, otherwise use callAIProvider
     const response = actualProvider === 'local'
       ? await callLocalBackend(message, 'default')
       : await callAIProvider(actualProvider, message, systemPrompt);
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:402',message:'After AI call',data:{hasContent:!!response?.content,contentLength:response?.content?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {
@@ -418,6 +431,9 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:catch',message:'Error caught',data:{error:String(error),name:(error as Error)?.name,stack:(error as Error)?.stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     return handleApiError(error);
   }
 }

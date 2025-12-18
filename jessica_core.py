@@ -139,15 +139,16 @@ MEM0_BASE_URL = "https://api.mem0.ai/v1"
 DEFAULT_MAX_TOKENS = 2048
 MEMORY_TRUNCATE_LENGTH = 200
 # Primary: jessica (custom model with master_prompt baked in - no system prompt needed!)
-# Fallback: qwen2.5:32b (if custom model unavailable)
+# Fallback: dolphin-llama3:8b (if custom model unavailable) - fits 16GB VRAM
 DEFAULT_OLLAMA_MODEL = "jessica"
-FALLBACK_OLLAMA_MODEL = "qwen2.5:32b"
+FALLBACK_OLLAMA_MODEL = "dolphin-llama3:8b"
 
 # Jessica Modes - different specialized models for different contexts
+# NOTE: Using jessica (10.7B) for all modes until 64GB RAM upgrade
 JESSICA_MODES = {
-    "default": "auto-detect",  # Will auto-detect importance and choose model
-    "fast": "qwen2.5:32b",  # Explicit fast mode (Qwen 32B)
-    "important": "nous-hermes2:34b-yi-q4_K_M",  # Explicit important mode (Hermes 34B)
+    "default": "jessica",  # Custom model with personality baked in
+    "fast": "jessica",  # Same model (fits 16GB VRAM)
+    "important": "jessica",  # Same model until RAM upgrade
     "business": "jessica-business", # WyldePhyre operations focus
     # Future modes:
     # "writing": "jessica-writing",   # Nexus Arcanum creative writing
@@ -809,7 +810,6 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
         """Try to call a specific model with given system prompt, return (success, response)"""
         payload = {
             "model": model_name,
-            "system": prompt,
             "prompt": user_message,
             "stream": False,
             "options": {
@@ -817,6 +817,10 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
                 "top_p": 0.9
             }
         }
+        # Only add system prompt if provided - custom models have it baked in via Modelfile
+        # Sending empty string can override the baked-in personality!
+        if prompt and prompt.strip():
+            payload["system"] = prompt
         
         logger.info(f"Ollama Generate API - Model: {model_name}")
         logger.info(f"System prompt length: {len(prompt)} characters")
@@ -1450,11 +1454,11 @@ def chat():
         # Detect if model is a custom "jessica" model (has personality baked in) vs generic model
         is_custom_jessica_model = active_model.startswith("jessica")
         
-        # For Ollama: Custom "jessica" model has master_prompt baked in
-        # Only send memory context, not the full prompt (saves tokens, faster!)
-        # Generic models (nous-hermes2, qwen2.5, dolphin, etc.) need full personality prompt!
+        # For Ollama: Custom "jessica" model has master_prompt baked in via Modelfile
+        # DO NOT send any system prompt - it will override the baked-in personality!
+        # Generic models (nous-hermes2, qwen2.5, dolphin, etc.) need full personality prompt
         if is_custom_jessica_model:
-            local_ollama_prompt = context_text if context_text else ""
+            local_ollama_prompt = ""  # Empty = use Modelfile's SYSTEM prompt
         else:
             # Generic models need full system prompt - this is CRITICAL for Jessica's personality!
             local_ollama_prompt = f"{local_prompt}{context_text}"
