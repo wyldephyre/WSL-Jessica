@@ -51,7 +51,7 @@
 ### Goal
 Automatically switch between models based on conversation importance:
 - **Important/Serious** → `nous-hermes2:34b-yi-q4_K_M` (full personality, slower, 30-60s)
-- **General/Banter** → `qwen2.5:32b` (faster, 10-20s, still has personality)
+- **General/Banter** → `nous-hermes2:10.7b-solar-q5_K_M` (faster, 10-20s, still has personality)
 
 ### Implementation Plan
 
@@ -75,14 +75,14 @@ Function: `detect_conversation_importance(message: str) -> str`
 
 Modify model selection to auto-detect importance when mode is 'default':
 - If importance = 'important' → use `nous-hermes2:34b-yi-q4_K_M`
-- If importance = 'general' → use `qwen2.5:32b`
+- If importance = 'general' → use `nous-hermes2:10.7b-solar-q5_K_M`
 - Explicit modes (business, etc.) still work as before
 
 #### 4. Update JESSICA_MODES Dictionary
 **File:** `jessica_core.py` (line 140)
 
 Add new modes:
-- `"fast"` → `qwen2.5:32b` (explicit fast mode)
+- `"fast"` → `nous-hermes2:10.7b-solar-q5_K_M` (explicit fast mode)
 - `"important"` → `nous-hermes2:34b-yi-q4_K_M` (explicit important mode)
 - `"default"` → auto-detects (current behavior)
 
@@ -111,7 +111,7 @@ Already handled - generic models (both Hermes and Qwen) get full `local_prompt` 
 
 ## TECHNICAL NOTES
 
-- Both `nous-hermes2:34b-yi-q4_K_M` and `qwen2.5:32b` are generic models
+- Both `nous-hermes2:34b-yi-q4_K_M` and `nous-hermes2:10.7b-solar-q5_K_M` are generic models
 - Both will receive full `jessica_local_prompt.txt` + memory context
 - Qwen 32B is faster but still maintains Jessica's personality
 - Hermes 34B is slower but has better reasoning for complex situations

@@ -12,8 +12,8 @@ Jessica uses custom Ollama models with her personality baked directly into the m
 ## Models
 
 ### Base Model
-- **qwen2.5:32b** - Base model that jessica is built from
-- Must be installed first: `ollama pull qwen2.5:32b`
+- **nous-hermes2:10.7b-solar-q5_K_M** - Base model that jessica is built from
+- Must be installed first: `ollama pull nous-hermes2:10.7b-solar-q5_K_M`
 
 ### Custom Models
 - **jessica** - Primary model with full personality from `Modelfile`
@@ -42,7 +42,7 @@ If you prefer to create models manually:
 
 ```bash
 # 1. Ensure base model exists
-ollama pull qwen2.5:32b
+ollama pull nous-hermes2:10.7b-solar-q5_K_M
 
 # 2. Create jessica model
 ollama create jessica -f Modelfile
@@ -80,7 +80,7 @@ ollama run jessica "Say 'Semper Fi' if you're working"
 If Jessica Core can't find the `jessica` model:
 1. Verify it exists: `ollama list | grep jessica`
 2. If missing, run: `./setup-jessica-models.sh`
-3. Check logs: The code will fallback to `qwen2.5:32b` with full system prompt if custom model fails
+3. Check logs: The code will fallback to `nous-hermes2:10.7b-solar-q5_K_M` with full system prompt if custom model fails
 
 ### Recreating Models
 
@@ -114,9 +114,9 @@ ollama serve > /dev/null 2>&1 &
 
 ### Base Model Missing
 
-If `qwen2.5:32b` is missing:
+If `nous-hermes2:10.7b-solar-q5_K_M` is missing:
 ```bash
-ollama pull qwen2.5:32b
+ollama pull nous-hermes2:10.7b-solar-q5_K_M
 ```
 
 **Note:** This is a large model (~19GB), so ensure you have enough disk space.
@@ -126,7 +126,7 @@ ollama pull qwen2.5:32b
 ### Modelfile Structure
 
 The `Modelfile` contains:
-- `FROM qwen2.5:32b` - Base model
+- `FROM nous-hermes2:10.7b-solar-q5_K_M` - Base model
 - `PARAMETER temperature 0.8` - Response temperature
 - `PARAMETER top_p 0.9` - Nucleus sampling
 - `SYSTEM """..."""` - Full Jessica personality prompt (baked into model)
@@ -136,7 +136,7 @@ The `Modelfile` contains:
 In `jessica_core.py`:
 - `DEFAULT_OLLAMA_MODEL = "jessica"` - Uses custom model by default
 - Custom models don't need system prompt (it's baked in)
-- Fallback to `qwen2.5:32b` if custom model fails (with full system prompt)
+- Fallback to `nous-hermes2:10.7b-solar-q5_K_M` if custom model fails (with full system prompt)
 
 ### Model Modes
 

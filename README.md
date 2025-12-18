@@ -34,7 +34,7 @@ Jessica Core is a Flask-based API server that provides intelligent routing betwe
 
 1. **Ollama** (running on `localhost:11434`)
    - Install from [ollama.ai](https://ollama.ai)
-   - Pull the base model: `ollama pull qwen2.5:32b`
+   - Pull the base model: `ollama pull nous-hermes2:10.7b-solar-q5_K_M`
    - Create custom Jessica models (see Model Setup below)
 
 2. **Whisper Service** (running on `localhost:5000`)
@@ -87,7 +87,7 @@ python3 verify_models.py
 
 The setup script will:
 - Check if Ollama is running
-- Verify base model `qwen2.5:32b` exists (downloads if missing)
+- Verify base model `nous-hermes2:10.7b-solar-q5_K_M` exists (downloads if missing)
 - Create `jessica` custom model from `Modelfile`
 - Create `jessica-business` custom model from `Modelfile.business`
 

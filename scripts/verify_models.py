@@ -50,7 +50,7 @@ def verify_models():
     
     # Check for required models
     required_models = {
-        'qwen2.5:32b': 'Base model (required for jessica)',
+        'nous-hermes2:10.7b-solar-q5_K_M': 'Base model (required for jessica)',
         'jessica': 'Custom Jessica model (primary)',
         'jessica-business': 'Business mode model (optional)'
     }
@@ -71,8 +71,8 @@ def verify_models():
                 print(f"    Create with: ollama create jessica -f Modelfile")
             elif model_name == 'jessica-business':
                 print(f"    Create with: ollama create jessica-business -f Modelfile.business")
-            elif model_name == 'qwen2.5:32b':
-                print(f"    Pull with: ollama pull qwen2.5:32b")
+            elif model_name == 'nous-hermes2:10.7b-solar-q5_K_M':
+                print(f"    Pull with: ollama pull nous-hermes2:10.7b-solar-q5_K_M")
             all_good = False
     
     print()

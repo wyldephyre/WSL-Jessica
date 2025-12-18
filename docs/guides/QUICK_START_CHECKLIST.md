@@ -8,7 +8,7 @@
 ### 1. Verify Ollama Models
 ```bash
 # In WSL Ubuntu terminal
-ollama list | grep -E "jessica|qwen2.5:32b"
+ollama list | grep -E "jessica|nous-hermes2:10.7b-solar-q5_K_M"
 ```
 
 **If missing models:**

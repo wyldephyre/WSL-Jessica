@@ -797,7 +797,7 @@ def call_local_ollama(system_prompt: str, user_message: str, model: str = DEFAUL
         fallback_system_prompt: Full system prompt for fallback models (generic models need this!)
     
     Custom models (jessica, jessica-business) have personality baked in via Modelfile.
-    Fallback models (qwen2.5:32b) are generic and need the full system prompt.
+    Fallback models (nous-hermes2:10.7b-solar-q5_K_M) are generic and need the full system prompt.
     """
     # #region agent log
     try:
@@ -1391,7 +1391,7 @@ def chat():
             if thread_importance == 'important':
                 active_model = "nous-hermes2:34b-yi-q4_K_M"
             else:
-                active_model = "qwen2.5:32b"
+                active_model = "nous-hermes2:10.7b-solar-q5_K_M"
             logger.info(f"Auto-detected importance: {thread_importance} -> Model: {active_model}")
         else:
             logger.info(f"Jessica Mode: {jessica_mode} -> Model: {active_model}")
@@ -1463,7 +1463,7 @@ def chat():
             # Generic models need full system prompt - this is CRITICAL for Jessica's personality!
             local_ollama_prompt = f"{local_prompt}{context_text}"
         
-        # Fallback prompt for generic models (qwen2.5:32b) - they need full personality!
+        # Fallback prompt for generic models (nous-hermes2:10.7b-solar-q5_K_M) - they need full personality!
         # Uses local_prompt (condensed version optimized for local models) + memory context
         fallback_ollama_prompt = f"{local_prompt}{context_text}"
         

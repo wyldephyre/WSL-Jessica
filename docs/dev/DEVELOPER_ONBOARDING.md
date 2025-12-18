@@ -109,7 +109,7 @@ curl -fsSL https://ollama.ai/install.sh | sh
 
 # Pull models
 ollama pull dolphin-llama3:8b
-ollama pull qwen2.5:32b  # Fallback model
+ollama pull nous-hermes2:10.7b-solar-q5_K_M  # Fallback model
 ```
 
 **Memory Service:**

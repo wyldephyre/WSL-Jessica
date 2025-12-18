@@ -33,14 +33,14 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     echo "✓ Ollama started"
 fi
 
-# Check if base model exists (qwen2.5:32b)
-echo "Checking for base model: qwen2.5:32b..."
-if ollama list | grep -q "qwen2.5:32b"; then
-    echo "✓ Base model qwen2.5:32b found"
+# Check if base model exists (nous-hermes2:10.7b-solar-q5_K_M)
+echo "Checking for base model: nous-hermes2:10.7b-solar-q5_K_M..."
+if ollama list | grep -q "nous-hermes2:10.7b-solar-q5_K_M"; then
+    echo "✓ Base model nous-hermes2:10.7b-solar-q5_K_M found"
 else
-    echo "⚠️  Base model qwen2.5:32b not found"
-    echo "   Pulling qwen2.5:32b (this may take a while)..."
-    ollama pull qwen2.5:32b
+    echo "⚠️  Base model nous-hermes2:10.7b-solar-q5_K_M not found"
+    echo "   Pulling nous-hermes2:10.7b-solar-q5_K_M (this may take a while)..."
+    ollama pull nous-hermes2:10.7b-solar-q5_K_M
     echo "✓ Base model downloaded"
 fi
 
@@ -97,7 +97,7 @@ echo "✅ Setup Complete!"
 echo "=========================================="
 echo ""
 echo "Models ready:"
-ollama list | grep -E "^jessica|^qwen2.5:32b" || echo "  (No matching models found)"
+ollama list | grep -E "^jessica|^nous-hermes2:10.7b-solar-q5_K_M" || echo "  (No matching models found)"
 echo ""
 echo "You can now start Jessica with:"
 echo "  source ~/.bashrc"

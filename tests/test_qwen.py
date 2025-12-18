@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test if qwen2.5:32b handles the full master_prompt and stays uncensored"""
+"""Test if nous-hermes2:10.7b-solar-q5_K_M handles the full master_prompt and stays uncensored"""
 import requests
 
 # Load the FULL master prompt
@@ -22,7 +22,7 @@ for msg in test_messages:
     response = requests.post(
         "http://localhost:11434/api/generate",
         json={
-            "model": "qwen2.5:32b",
+            "model": "nous-hermes2:10.7b-solar-q5_K_M",
             "system": system,
             "prompt": msg,
             "stream": False

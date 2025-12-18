@@ -29,7 +29,7 @@
 ## Installed Models
 ```
 nous-hermes2:34b-yi-q4_K_M    20 GB     ← PRIMARY (Jessica's brain)
-qwen2.5:32b                   19 GB     ← Also available
+nous-hermes2:10.7b-solar-q5_K_M                   19 GB     ← Also available
 dolphin-llama3:8b             4.7 GB    ← Fallback only
 llama3.1:70b                  42 GB     ← Too big for VRAM
 ```

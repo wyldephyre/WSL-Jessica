@@ -20,10 +20,10 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
 fi
 
 # Check if base model exists
-if ! ollama list | grep -q "qwen2.5:32b"; then
-    echo "⚠️  Base model qwen2.5:32b not found"
-    echo "   Pulling qwen2.5:32b first..."
-    ollama pull qwen2.5:32b
+if ! ollama list | grep -q "nous-hermes2:10.7b-solar-q5_K_M"; then
+    echo "⚠️  Base model nous-hermes2:10.7b-solar-q5_K_M not found"
+    echo "   Pulling nous-hermes2:10.7b-solar-q5_K_M first..."
+    ollama pull nous-hermes2:10.7b-solar-q5_K_M
 fi
 
 # Create jessica model

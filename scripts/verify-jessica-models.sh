@@ -19,10 +19,10 @@ echo "Checking installed models..."
 echo ""
 
 # Check base model
-if ollama list | grep -q "qwen2.5:32b"; then
-    echo "✓ qwen2.5:32b (base model)"
+if ollama list | grep -q "nous-hermes2:10.7b-solar-q5_K_M"; then
+    echo "✓ nous-hermes2:10.7b-solar-q5_K_M (base model)"
 else
-    echo "✗ qwen2.5:32b (base model) - MISSING"
+    echo "✗ nous-hermes2:10.7b-solar-q5_K_M (base model) - MISSING"
 fi
 
 # Check jessica model
