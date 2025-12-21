@@ -13,10 +13,14 @@ interface ExtractedTask {
 /**
  * Extract tasks from transcription using Groq
  */
-export async function extractAndSaveWithGroq(transcription: string): Promise<{
+export async function extractAndSaveWithGroq(
+  transcription: string,
+  _options?: { source?: string }
+): Promise<{
   tasks: ExtractedTask[];
   events: any[];
 }> {
+  // Optional source/metadata can be passed by callers; ignored for now.
   if (!env.GROQ_API_KEY) {
     throw new Error('GROQ_API_KEY not configured');
   }

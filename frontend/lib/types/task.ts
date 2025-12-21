@@ -5,6 +5,7 @@
 export interface Task {
   id: string;
   title: string;
+  text?: string; // legacy field used by older task records
   description?: string;
   completed: boolean;
   priority?: 'high' | 'medium' | 'low';
