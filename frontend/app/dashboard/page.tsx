@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '@/firebase';
+// Firebase removed - Zo Computer handles tasks
 import TaskList from '@/components/features/tasks/TaskList';
 import MemoryManager from '@/components/features/memory/MemoryManager';
 import type { Task } from '@/lib/types/task';
@@ -25,42 +24,9 @@ export default function Dashboard() {
       setLoading(true);
       setError('');
 
-      let q;
-      if (showCompleted) {
-        q = query(collection(db, 'tasks'));
-      } else {
-        q = query(collection(db, 'tasks'), where('completed', '==', false));
-      }
-
-      const querySnapshot = await getDocs(q);
-      const tasksData: Task[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        tasksData.push({ id: doc.id, ...doc.data() } as Task);
-      });
-
-      tasksData.sort((a, b) => {
-        const getTimestamp = (task: Task): number => {
-          const ts = task.createdAt;
-          if (ts && typeof ts === 'object' && 'toDate' in ts && typeof ts.toDate === 'function') {
-            return ts.toDate().getTime();
-          }
-          if (ts && typeof ts === 'object' && 'toMillis' in ts && typeof ts.toMillis === 'function') {
-            return ts.toMillis();
-          }
-          if (ts instanceof Timestamp) {
-            return ts.toMillis();
-          }
-          if (ts instanceof Date) {
-            return ts.getTime();
-          }
-          return typeof ts === 'number' ? ts : 0;
-        };
-        
-        return getTimestamp(b) - getTimestamp(a);
-      });
-
-      setTasks(tasksData);
+      // TODO: Fetch tasks from Zo Computer API
+      // Tasks are now handled by Zo Computer
+      setTasks([]);
     } catch (err) {
       console.error('[Dashboard] Error fetching tasks:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to load tasks';
@@ -74,19 +40,11 @@ export default function Dashboard() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.completed).length;
-  const pendingTasks = totalTasks - completedTasks;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTasks = tasks.filter(t => {
-    if (!t.dueDate) return false;
-    const dueDate = t.dueDate instanceof Date 
-      ? t.dueDate 
-      : (t.dueDate as Timestamp)?.toDate?.() || new Date(t.dueDate as string);
-    dueDate.setHours(0, 0, 0, 0);
-    return dueDate.getTime() === today.getTime();
-  }).length;
+  // Task stats - Zo Computer handles tasks now
+  const totalTasks = 0;
+  const completedTasks = 0;
+  const pendingTasks = 0;
+  const todayTasks = 0;
 
   return (
     <div className="min-h-screen p-8">

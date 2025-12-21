@@ -1,37 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '@/firebase';
+// Firebase removed - Zo Computer handles tasks
 import { ChatInput } from '@/components/features/chat/ChatInput';
 import { ProviderHelp } from '@/components/features/chat/ProviderHelp';
 import type { Task } from '@/lib/types/task';
 
-// Shortcut card type
-interface Shortcut {
-  id: string;
-  name: string;
-  icon: React.ReactNode;
-  href: string;
-}
-
-// Simple icons
-const NoteIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-);
-
-const AudioIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-  </svg>
-);
-
-const shortcuts: Shortcut[] = [
-  { id: 'audio', name: 'Upload Audio', icon: <AudioIcon />, href: '/audio' },
-  { id: 'note', name: 'Quick Note', icon: <NoteIcon />, href: '/notes' },
-];
+// Shortcuts removed - Zo Computer handles audio uploads and notes
 
 /**
  * Home Page - Martin AI Inspired
@@ -46,32 +21,12 @@ export default function Home() {
   const [activeProvider, setActiveProvider] = useState<string | undefined>(undefined);
   const userName = 'Jason';
 
-  // Fetch pending tasks
+  // Tasks are now handled by Zo Computer - fetch via Zo API when needed
+  // For now, tasks are empty until Zo integration is complete
   const fetchTasks = useCallback(async () => {
     try {
-      const q = query(
-        collection(db, 'tasks'),
-        where('completed', '==', false)
-      );
-      const querySnapshot = await getDocs(q);
-      const tasksData: Task[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        tasksData.push({ id: doc.id, ...doc.data() } as Task);
-      });
-
-      // Sort by createdAt descending
-      tasksData.sort((a, b) => {
-        const getTs = (t: Task): number => {
-          const ts = t.createdAt;
-          if (ts && typeof ts === 'object' && 'toMillis' in ts) return (ts as Timestamp).toMillis();
-          if (ts instanceof Date) return ts.getTime();
-          return 0;
-        };
-        return getTs(b) - getTs(a);
-      });
-
-      setTasks(tasksData.slice(0, 5)); // Only show top 5
+      // TODO: Fetch tasks from Zo Computer API
+      setTasks([]);
     } catch (err) {
       console.error('[Home] Error fetching tasks:', err);
     } finally {
@@ -207,31 +162,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Shortcuts Section */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-            </svg>
-            <h2 className="text-lg font-medium text-gray-200">Shortcuts</h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {shortcuts.map((shortcut) => (
-              <a
-                key={shortcut.id}
-                href={shortcut.href}
-                className="p-4 rounded-lg bg-gray-800/30 border border-gray-700/30 hover:border-amber-500/30 hover:bg-gray-800/50 transition-all group"
-              >
-                <div className="w-10 h-10 rounded-lg bg-gray-700/50 flex items-center justify-center text-gray-400 group-hover:text-amber-500 transition-colors mb-3">
-                  {shortcut.icon}
-                </div>
-                <span className="text-sm text-gray-300">{shortcut.name}</span>
-              </a>
-            ))}
-          </div>
-        </section>
-
         {/* Upcoming Events Section */}
         <section>
           <div className="flex items-center gap-3 mb-4">
@@ -248,7 +178,7 @@ export default function Home() {
               <span className="text-sm text-gray-300">Today</span>
             </div>
             <div className="text-center py-4 text-gray-600 text-sm">
-              No upcoming events. Connect your calendar in Settings.
+              No upcoming events. Calendar is managed by Zo Computer.
             </div>
           </div>
         </section>

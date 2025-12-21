@@ -1,6 +1,6 @@
 /**
  * Memory Test API
- * Utility endpoint to test Mem0 connection and verify user_id
+ * Utility endpoint to test Letta connection and verify user_id
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const testUserId = searchParams.get('user_id') || USER_ID;
     
     // Test 1: Check API key
-    const hasApiKey = !!env.MEM0_API_KEY;
+    const hasApiKey = !!env.LETTA_API_KEY;
     
     // Test 2: Try to initialize client
     let clientInitSuccess = false;
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       tests: {
         apiKey: {
           present: hasApiKey,
-          value: hasApiKey ? '***' + env.MEM0_API_KEY?.slice(-4) : 'not set',
+          value: hasApiKey ? '***' + env.LETTA_API_KEY?.slice(-4) : 'not set',
         },
         clientInit: {
           success: clientInitSuccess,
@@ -60,11 +60,11 @@ export async function GET(req: NextRequest) {
       currentUserId: USER_ID,
       testUserId,
       recommendation: !hasApiKey 
-        ? 'Set MEM0_API_KEY in .env.local'
+        ? 'Set LETTA_API_KEY in .env.local'
         : !clientInitSuccess
-        ? 'Check MEM0_API_KEY is valid'
+        ? 'Check LETTA_API_KEY is valid'
         : !memoriesSuccess
-        ? `Check if user_id "${testUserId}" exists in Mem0. Try using the exact user_id from your Mem0 dashboard.`
+        ? `Check if user_id "${testUserId}" exists in Letta. Try using the exact user_id from your Letta dashboard.`
         : memoryCount === 0
         ? `No memories found for user_id "${testUserId}". Add some memories using the memory seeder or chat interface.`
         : `Found ${memoryCount} memories for user_id "${testUserId}"`,

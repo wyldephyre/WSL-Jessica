@@ -155,7 +155,8 @@ describe('API Client', () => {
           claude_api: { configured: true },
           grok_api: { configured: true },
           gemini_api: { configured: true },
-          mem0_api: { configured: true },
+          letta_api: { configured: true },
+          mem0_api: { configured: true }, // Deprecated
         }),
       };
 

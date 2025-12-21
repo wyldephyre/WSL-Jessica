@@ -258,12 +258,12 @@ User (Corporal Phyre) has ADHD and limited Claude tokens.
 - **Claude API** (Anthropic): Complex reasoning
 - **Grok API** (X.AI): Research queries
 - **Gemini API** (Google): Quick lookups
-- **Mem0 API**: Cloud memory sync
+- **Letta API**: Cloud memory sync (replaces Mem0)
 
 ### Optional APIs (Future)
 - **Memories.ai**: Visual memory (wearable camera integration)
 - **Plaud**: Audio dump processing
-- **Google Workspace**: Calendar, Gmail, Drive
+- **Zo Computer**: Workspace automation, calendar, email, file storage (replaces Google Workspace)
 
 ---
 

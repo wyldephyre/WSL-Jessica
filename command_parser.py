@@ -66,20 +66,9 @@ NATURAL_ROUTING_PATTERNS = {
 
 # Action command patterns
 ACTION_PATTERNS = {
-    "google_sheets": [
-        r"create\s+(?:a\s+)?google\s+sheet",
-        r"make\s+(?:me\s+)?(?:a\s+)?(?:google\s+)?sheet",
-        r"go\s+out\s+and\s+create\s+(?:a\s+)?(?:google\s+)?sheet",
-        r"spreadsheet",
-    ],
     "research": [
         r"go\s+out\s+and\s+research",
         r"research\s+(?:this|that|it)",
-    ],
-    "calendar": [
-        r"create\s+(?:a\s+)?calendar\s+event",
-        r"schedule",
-        r"add\s+to\s+calendar",
     ],
 }
 

@@ -1,12 +1,10 @@
 /**
  * Memory File Upload API
  * Handles file uploads for memories (images, PDFs, documents)
- * Extracts text and stores files in Firebase Storage
+ * Extracts text for Letta memory storage (file storage handled by Zo Computer)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { storage } from '@/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
 import { analyzeImage } from '@/lib/services/visionService';
 import { requireAuth } from '@/lib/middleware/auth';
@@ -165,31 +163,8 @@ export async function POST(request: NextRequest) {
       extractedText = `[File: ${file.name} - Text extraction unavailable]`;
     }
 
-    // Upload file to Firebase Storage
-    // Note: Firebase Storage client SDK has limitations in server-side API routes
-    // If upload fails, we'll continue without the file URL
-    let downloadURL: string | null = null;
-    let storagePath: string | null = null;
-    
-    try {
-      const timestamp = Date.now();
-      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      storagePath = `memories/${userId}/${timestamp}_${sanitizedFileName}`;
-      const storageRef = ref(storage, storagePath);
-
-      await uploadBytes(storageRef, buffer, {
-        contentType: file.type,
-      });
-
-      // Get download URL
-      downloadURL = await getDownloadURL(storageRef);
-      console.log('[Memory Upload] File uploaded to Firebase Storage:', storagePath);
-    } catch (storageError) {
-      console.warn('[Memory Upload] Firebase Storage upload failed (continuing without file URL):', storageError);
-      // Continue without storage - we still have the extracted text
-      // The memory will be saved with extracted text but no file URL
-    }
-
+    // File storage is now handled by Zo Computer
+    // We only extract text content for Letta memory storage
     // Prepare memory content
     const memoryContent = description 
       ? `${description}\n\n[Attached file: ${file.name}]\n${extractedText}`
@@ -197,19 +172,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      fileUrl: downloadURL || null,
       fileName: file.name,
       fileType: file.type,
       fileSize: file.size,
       extractedText,
       memoryContent,
       context,
-      storagePath: storagePath || null,
       // Vision analysis results (if image)
       contacts: extractedContacts,
       visualContext: extractedContext,
       visionProvider,
-      storageUploaded: !!downloadURL,
     });
   } catch (error) {
     return handleApiError(error);

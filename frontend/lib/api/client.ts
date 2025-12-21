@@ -58,9 +58,12 @@ interface ServiceStatus {
   gemini_api: {
     configured: boolean;
   };
-  mem0_api: {
+  letta_api: {
     configured: boolean;
   };
+  mem0_api?: {
+    configured: boolean;
+  }; // Deprecated - kept for backward compatibility
   request_id?: string;
 }
 
@@ -124,7 +127,7 @@ export async function sendChatMessage(
 }
 
 /**
- * Search cloud memories using Mem0 API with automatic retry logic
+ * Search cloud memories using Letta API with automatic retry logic
  * 
  * @param {string} query - Search query string
  * @returns {Promise<MemorySearchResponse>} Promise resolving to search results with scores and metadata
@@ -202,7 +205,8 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
       claude_api: { configured: false },
       grok_api: { configured: false },
       gemini_api: { configured: false },
-      mem0_api: { configured: false },
+      letta_api: { configured: false },
+      mem0_api: { configured: false }, // Deprecated
     };
   }
 }

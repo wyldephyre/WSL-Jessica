@@ -21,10 +21,10 @@ cd ~/jessica-core
 ```bash
 # In WSL Ubuntu terminal
 source ~/.bashrc
-env | grep -E "ANTHROPIC|XAI|GOOGLE|MEM0" | head -4
+env | grep -E "ANTHROPIC|XAI|GOOGLE|LETTA|ZO" | head -5
 ```
 
-**Should show 4 keys. If not, check ~/.bashrc**
+**Should show at least 3 keys (ANTHROPIC, XAI, GOOGLE). LETTA and ZO are optional. If not, check ~/.bashrc**
 
 ### 3. Kill Stuck Processes
 ```bash
@@ -39,9 +39,8 @@ pkill ollama
 ```bash
 # In WSL Ubuntu terminal
 lsof -i:11434  # Should be empty or show Ollama
-lsof -i:5000   # Should be empty
-lsof -i:5001   # Should be empty
-lsof -i:8000   # Should be empty
+lsof -i:5001   # Should be empty (Memory Server)
+lsof -i:8000   # Should be empty (Jessica Core)
 ```
 
 ---
@@ -137,21 +136,18 @@ Navigate to: `http://localhost:3000`
 
 **Service Ports:**
 - 11434: Ollama
-- 5001: Memory Server
-- 5000: Whisper Server
+- 5001: Memory Server (ChromaDB)
 - 8000: Jessica Core
 - 3000: Frontend
 
 **Log Locations:**
 - `~/jessica-core/logs/jessica-core.log`
 - `~/jessica-core/logs/memory-server.log`
-- `~/jessica-core/logs/whisper-server.log`
 
 **Stop All Services:**
 ```bash
 pkill -f jessica_core.py
 pkill -f memory_server.py
-pkill -f whisper_server.py
 pkill ollama
 ```
 

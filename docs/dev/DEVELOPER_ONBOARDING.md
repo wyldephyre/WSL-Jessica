@@ -45,12 +45,12 @@ Jessica is a cognitive prosthetic AI system for disabled veterans. She's a Marin
         │
         ├──► Ollama (Port 11434) - Local LLM
         ├──► Memory Service (Port 5001) - ChromaDB
-        ├──► Whisper Service (Port 5000) - Audio
         │
         ├──► Claude API (Anthropic)
         ├──► Grok API (X.AI)
         ├──► Gemini API (Google)
-        └──► Mem0 API (Cloud Memory)
+        ├──► Letta API (Cloud Memory - replaces Mem0)
+        └──► Zo Computer API (Workspace automation - replaces Google Workspace)
 ```
 
 ### Key Technologies
@@ -58,8 +58,8 @@ Jessica is a cognitive prosthetic AI system for disabled veterans. She's a Marin
 **Backend:**
 - Flask (web framework)
 - Requests (HTTP client with pooling)
-- ChromaDB (local vector storage)
-- Mem0 (cloud memory sync)
+- ChromaDB (local vector storage - temporary, will be removed after Letta migration)
+- Letta (cloud memory sync - replaces Mem0)
 - Ollama (local LLM)
 
 **Frontend:**
@@ -116,10 +116,6 @@ ollama pull nous-hermes2:10.7b-solar-q5_K_M  # Fallback model
 - Should be part of `start-jessica.sh` script
 - Or run separately if needed
 
-**Whisper Service:**
-- Should be part of `start-jessica.sh` script
-- Or run separately if needed
-
 ### 5. Configuration
 
 **API Keys (Required):**
@@ -128,7 +124,8 @@ ollama pull nous-hermes2:10.7b-solar-q5_K_M  # Fallback model
 export ANTHROPIC_API_KEY="your-key"
 export XAI_API_KEY="your-key"
 export GOOGLE_AI_API_KEY="your-key"
-export MEM0_API_KEY="your-key"
+export LETTA_API_KEY="your-key"
+export ZO_API_KEY="your-key"  # Optional - for Zo Computer integration
 
 # Reload:
 source ~/.bashrc

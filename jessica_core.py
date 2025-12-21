@@ -21,13 +21,27 @@ from command_parser import extract_command_intent
 # This fixes the issue where bashrc exports don't reach non-interactive shells
 load_dotenv()
 
-# #region agent log
-try:
-    with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
-        import json, time
-        f.write(json.dumps({"sessionId":"debug-session","runId":"startup","hypothesisId":"A","location":"jessica_core.py:21","message":"After load_dotenv - checking MEM0_API_KEY","data":{"MEM0_API_KEY_from_env":bool(os.getenv("MEM0_API_KEY")),"MEM0_API_KEY_length":len(os.getenv("MEM0_API_KEY","")) if os.getenv("MEM0_API_KEY") else 0},"timestamp":int(time.time()*1000)}) + '\n')
-except: pass
-# #endregion
+# Agent logging - gated behind DEBUG flag
+# Set ENABLE_AGENT_LOGGING=1 in environment to enable debug logging
+ENABLE_AGENT_LOGGING = os.getenv("ENABLE_AGENT_LOGGING", "0") == "1"
+
+def agent_log(location: str, message: str, data: dict = None, session_id: str = "debug-session", run_id: str = "default", hypothesis_id: str = "A"):
+    """Conditional agent logging - only logs if ENABLE_AGENT_LOGGING is set"""
+    if not ENABLE_AGENT_LOGGING:
+        return
+    try:
+        with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
+            import json, time
+            f.write(json.dumps({
+                "sessionId": session_id,
+                "runId": run_id,
+                "hypothesisId": hypothesis_id,
+                "location": location,
+                "message": message,
+                "data": data or {},
+                "timestamp": int(time.time()*1000)
+            }) + '\n')
+    except: pass
 
 # Configure logging with structured format
 # Use simple format for basicConfig (before Flask context exists)
@@ -78,7 +92,6 @@ def get_rate_limit_key():
 
 # Rate limit configuration from environment variables
 RATE_LIMIT_CHAT = os.getenv("RATE_LIMIT_CHAT", "60 per minute")
-RATE_LIMIT_TRANSCRIBE = os.getenv("RATE_LIMIT_TRANSCRIBE", "10 per minute")
 RATE_LIMIT_PROXY = os.getenv("RATE_LIMIT_PROXY", "100 per minute")
 
 # Initialize rate limiter
@@ -109,7 +122,6 @@ _thread_last_activity: Dict[str, float] = {}  # Track last message time per user
 # SERVICE ENDPOINTS
 # =============================================================================
 OLLAMA_URL = "http://localhost:11434"
-WHISPER_URL = "http://localhost:5000"
 MEMORY_URL = "http://localhost:5001"
 
 # =============================================================================
@@ -120,18 +132,27 @@ XAI_API_KEY = os.getenv("XAI_API_KEY")
 GOOGLE_AI_API_KEY = os.getenv("GOOGLE_AI_API_KEY")
 MEM0_API_KEY = os.getenv("MEM0_API_KEY")
 
-# #region agent log
-try:
-    with open('/home/phyre/jessica-core/.cursor/debug.log', 'a') as f:
-        import json, time
-        f.write(json.dumps({"sessionId":"debug-session","runId":"startup","hypothesisId":"B","location":"jessica_core.py:109","message":"API keys loaded","data":{"ANTHROPIC_SET":bool(ANTHROPIC_API_KEY),"XAI_SET":bool(XAI_API_KEY),"GOOGLE_SET":bool(GOOGLE_AI_API_KEY),"MEM0_SET":bool(MEM0_API_KEY),"MEM0_LENGTH":len(MEM0_API_KEY) if MEM0_API_KEY else 0,"MEM0_PREFIX":MEM0_API_KEY[:5] if MEM0_API_KEY and len(MEM0_API_KEY) >= 5 else "N/A"},"timestamp":int(time.time()*1000)}) + '\n')
-except: pass
-# #endregion
+# Agent logging for API keys loaded
+agent_log("jessica_core.py:startup", "API keys loaded", {
+    "ANTHROPIC_SET": bool(ANTHROPIC_API_KEY),
+    "XAI_SET": bool(XAI_API_KEY),
+    "GOOGLE_SET": bool(GOOGLE_AI_API_KEY),
+    "LETTA_SET": bool(LETTA_API_KEY),
+    "MEM0_SET": bool(MEM0_API_KEY),
+    "ZO_SET": bool(ZO_API_KEY)
+}, run_id="startup", hypothesis_id="B")
 
 # =============================================================================
 # MEM0 CONFIGURATION
 # =============================================================================
 MEM0_BASE_URL = "https://api.mem0.ai/v1"
+
+# =============================================================================
+# LETTA CONFIGURATION
+# =============================================================================
+LETTA_API_KEY = os.getenv("LETTA_API_KEY")
+LETTA_BASE_URL = os.getenv("LETTA_BASE_URL", "https://api.letta.ai/v1")
+LETTA_TIMEOUT = int(os.getenv("LETTA_TIMEOUT", "30"))
 
 # =============================================================================
 # CONSTANTS
@@ -1052,6 +1073,9 @@ def call_gemini_api(prompt: str, system_prompt: str = "") -> str:
 def mem0_add_memory(content: str, user_id: str, metadata: dict = None) -> dict:
     """Add memory to Mem0 cloud
     
+    DEPRECATED: This function is deprecated. Use letta_add_memory() instead.
+    Kept for backward compatibility during migration period.
+    
     Args:
         content: Memory content to store
         user_id: User ID (required, no fallback)
@@ -1108,6 +1132,9 @@ def mem0_add_memory(content: str, user_id: str, metadata: dict = None) -> dict:
 def mem0_search_memories(query: str, user_id: str, limit: int = 5) -> list:
     """Search memories in Mem0 cloud
     
+    DEPRECATED: This function is deprecated. Use letta_search_memories() instead.
+    Kept for backward compatibility during migration period.
+    
     Args:
         query: Search query string
         user_id: User ID (required, no fallback)
@@ -1150,6 +1177,9 @@ def mem0_search_memories(query: str, user_id: str, limit: int = 5) -> list:
 def mem0_get_all_memories(user_id: str) -> list:
     """Get all memories for user from Mem0
     
+    DEPRECATED: This function is deprecated. Use letta_get_all_memories() instead.
+    Kept for backward compatibility during migration period.
+    
     Args:
         user_id: User ID (required, no fallback)
     """
@@ -1182,7 +1212,130 @@ def mem0_get_all_memories(user_id: str) -> list:
 
 
 # =============================================================================
-# DUAL MEMORY SYSTEM
+# LETTA FUNCTIONS
+# =============================================================================
+
+def letta_add_memory(content: str, user_id: str, metadata: dict = None) -> dict:
+    """Add memory to Letta
+    
+    Args:
+        content: Memory content to store
+        user_id: User ID (required, no fallback)
+        metadata: Optional metadata dict
+    """
+    if not LETTA_API_KEY:
+        return {"error": "LETTA_API_KEY not configured"}
+    
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        raise ValidationError("user_id is required")
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {LETTA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "content": content,
+            "user_id": user_id
+        }
+        
+        if metadata:
+            payload["metadata"] = metadata
+        
+        response = http_session.post(
+            f"{LETTA_BASE_URL}/memories",
+            headers=headers,
+            json=payload,
+            timeout=LETTA_TIMEOUT
+        )
+        response.raise_for_status()
+        
+        return response.json()
+    except Exception as e:
+        logger.error(f"Letta add memory error: {e}")
+        return {"error": str(e)}
+
+
+def letta_search_memories(query: str, user_id: str, limit: int = 5) -> list:
+    """Search memories in Letta
+    
+    Args:
+        query: Search query string
+        user_id: User ID (required, no fallback)
+        limit: Maximum number of results (default: 5)
+    """
+    if not LETTA_API_KEY:
+        return []
+    
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        logger.error("letta_search_memories called without user_id")
+        return []
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {LETTA_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {"query": query, "user_id": user_id, "limit": limit}
+        
+        response = http_session.post(
+            f"{LETTA_BASE_URL}/memories/search",
+            headers=headers,
+            json=payload,
+            timeout=LETTA_TIMEOUT
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        # Handle different response formats
+        if isinstance(data, list):
+            return data
+        return data.get("memories", data.get("results", []))
+    except Exception as e:
+        logger.error(f"Letta search error: {e}")
+        return []
+
+
+def letta_get_all_memories(user_id: str) -> list:
+    """Get all memories for user from Letta
+    
+    Args:
+        user_id: User ID (required, no fallback)
+    """
+    if not LETTA_API_KEY:
+        return []
+    
+    # SECURITY FIX: user_id is required - no fallback
+    if not user_id:
+        logger.error("letta_get_all_memories called without user_id")
+        return []
+    
+    try:
+        headers = {"Authorization": f"Bearer {LETTA_API_KEY}"}
+        
+        response = http_session.get(
+            f"{LETTA_BASE_URL}/memories?user_id={user_id}",
+            headers=headers,
+            timeout=LETTA_TIMEOUT
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        # Handle different response formats
+        if isinstance(data, list):
+            return data
+        return data.get("memories", data.get("results", []))
+    except Exception as e:
+        logger.error(f"Letta get all error: {e}")
+        return []
+
+
+# =============================================================================
+# DUAL MEMORY SYSTEM (Letta + ChromaDB - Mem0 to be removed)
 # =============================================================================
 
 def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_used: str, user_id: str) -> None:
@@ -1239,19 +1392,19 @@ def _store_memory_dual_sync(user_message: str, jessica_response: str, provider_u
         # #endregion
         logger.error(f"Local memory store failed: {e}")
     
-    # Store in Mem0 cloud
+    # Store in Letta (replacing Mem0)
     try:
-        mem0_add_memory(
+        letta_add_memory(
             memory_text,
             user_id=user_id,
             metadata={"provider": provider_used, "source": "jessica_local"}
         )
     except Exception as e:
-        logger.error(f"Mem0 store failed: {e}")
+        logger.error(f"Letta store failed: {e}")
 
 
 def store_memory_dual(user_message: str, jessica_response: str, provider_used: str, user_id: str) -> None:
-    """Store memory in both local ChromaDB and Mem0 cloud (non-blocking)
+    """Store memory in both local ChromaDB and Letta (non-blocking)
     
     Args:
         user_message: User's message
@@ -1269,7 +1422,7 @@ def store_memory_dual(user_message: str, jessica_response: str, provider_used: s
 
 
 def recall_memory_dual(query: str, user_id: str) -> Dict[str, List[str]]:
-    """Recall from both local ChromaDB and Mem0
+    """Recall from both local ChromaDB and Letta
     
     Args:
         query: Search query string
@@ -1289,8 +1442,8 @@ def recall_memory_dual(query: str, user_id: str) -> Dict[str, List[str]]:
         logger.error(f"Local recall failed: {e}")
     
     try:
-        cloud_memories = mem0_search_memories(query, user_id, limit=3)
-        # Handle different Mem0 response formats
+        cloud_memories = letta_search_memories(query, user_id, limit=3)
+        # Handle different Letta response formats
         cloud_texts = []
         for m in cloud_memories:
             if isinstance(m, str):
@@ -1300,7 +1453,7 @@ def recall_memory_dual(query: str, user_id: str) -> Dict[str, List[str]]:
                 cloud_texts.append(m.get("memory", m.get("text", m.get("content", str(m)))))
         context["cloud"] = cloud_texts
     except Exception as e:
-        logger.error(f"Mem0 recall failed: {e}")
+        logger.error(f"Letta recall failed: {e}")
     
     return context
 
@@ -1542,22 +1695,22 @@ def chat():
 
 @app.route('/memory/cloud/search', methods=['POST'])
 def search_cloud_memory():
-    """Search cloud memories - uses single-user constant"""
+    """Search cloud memories via Letta - uses single-user constant"""
     data = request.json
     if not data:
         raise ValidationError("Request body must be JSON")
     
     query = data.get('query', '')
     # Single-user system: Use constant USER_ID
-    results = mem0_search_memories(query, USER_ID)
+    results = letta_search_memories(query, USER_ID)
     return jsonify({"results": results})
 
 
 @app.route('/memory/cloud/all', methods=['GET'])
 def get_all_cloud_memories():
-    """Get all cloud memories - uses single-user constant"""
+    """Get all cloud memories via Letta - uses single-user constant"""
     # Single-user system: Use constant USER_ID
-    results = mem0_get_all_memories(USER_ID)
+    results = letta_get_all_memories(USER_ID)
     return jsonify({"results": results})
 
 
@@ -1570,7 +1723,8 @@ def status():
         "claude_api": {"configured": bool(ANTHROPIC_API_KEY)},
         "grok_api": {"configured": bool(XAI_API_KEY)},
         "gemini_api": {"configured": bool(GOOGLE_AI_API_KEY)},
-        "mem0_api": {"configured": bool(MEM0_API_KEY)},
+        "letta_api": {"configured": bool(LETTA_API_KEY)},
+        "mem0_api": {"configured": bool(MEM0_API_KEY)},  # Deprecated - kept for migration period
         "request_id": g.request_id
     }
     
@@ -1622,46 +1776,6 @@ def get_modes():
         "usage": "Include 'mode': 'business' in your chat request to switch modes"
     }
     return jsonify(modes_info)
-
-
-@app.route('/transcribe', methods=['POST'])
-@limiter.limit(RATE_LIMIT_TRANSCRIBE)
-def transcribe_audio():
-    """Transcribe audio endpoint with error handling"""
-    try:
-        # Input validation
-        if 'audio' not in request.files:
-            raise ValidationError("No audio file provided")
-        
-        audio_file = request.files['audio']
-        if audio_file.filename == '':
-            raise ValidationError("No audio file selected")
-        
-        files = {'audio': audio_file}
-        start_time = time.time()
-        response = http_session.post(f"{WHISPER_URL}/transcribe", files=files, timeout=API_TIMEOUT)
-        response_time = (time.time() - start_time) * 1000
-        response.raise_for_status()
-        
-        result = response.json()
-        logger.info(f"Transcription completed in {response_time:.2f}ms")
-        return jsonify({**result, "request_id": g.request_id})
-    except ValidationError as e:
-        logger.warning(f"Validation error in transcribe: {e.message}")
-        return jsonify({"error": e.message, "error_code": e.error_code, "request_id": g.request_id}), e.status_code
-    except requests.exceptions.Timeout:
-        logger.error("Transcription service timeout")
-        raise ServiceUnavailableError("Whisper", "Transcription service timed out")
-    except requests.exceptions.ConnectionError:
-        logger.error("Transcription service connection error")
-        raise ServiceUnavailableError("Whisper", "Transcription service unavailable")
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
-        return jsonify({
-            "error": "Transcription service unavailable",
-            "error_code": "SERVICE_UNAVAILABLE",
-            "request_id": g.request_id
-        }), 503
 
 
 # =============================================================================
@@ -1808,8 +1922,12 @@ def validate_environment() -> bool:
         warnings.append("XAI_API_KEY not set - Grok API unavailable")
     if not GOOGLE_AI_API_KEY:
         warnings.append("GOOGLE_AI_API_KEY not set - Gemini API unavailable")
+    if not LETTA_API_KEY:
+        warnings.append("LETTA_API_KEY not set - Letta cloud memory unavailable")
     if not MEM0_API_KEY:
-        warnings.append("MEM0_API_KEY not set - Mem0 cloud memory unavailable")
+        warnings.append("MEM0_API_KEY not set - Mem0 cloud memory unavailable (deprecated, use LETTA_API_KEY)")
+    if not ZO_API_KEY:
+        warnings.append("ZO_API_KEY not set - Zo Computer integration unavailable (optional)")
     
     # Check that at least one provider is available
     providers_available = bool(ANTHROPIC_API_KEY or XAI_API_KEY or GOOGLE_AI_API_KEY)
@@ -1834,7 +1952,7 @@ def validate_environment() -> bool:
 
 if __name__ == '__main__':
     # Startup banner (also log it)
-    banner = "\n" + "="*60 + "\nJESSICA CORE v2.0 - Three-Tier Routing + Mem0\n" + "="*60
+    banner = "\n" + "="*60 + "\nJESSICA CORE v2.1 - Three-Tier Routing + Letta\n" + "="*60
     print(banner)
     logger.info("Jessica Core starting up...")
     
@@ -1846,7 +1964,9 @@ if __name__ == '__main__':
         f"Claude API:     {'✓' if ANTHROPIC_API_KEY else '✗'}\n"
         f"Grok API:       {'✓' if XAI_API_KEY else '✗'}\n"
         f"Gemini API:     {'✓' if GOOGLE_AI_API_KEY else '✗'}\n"
-        f"Mem0 API:       {'✓' if MEM0_API_KEY else '✗'}\n"
+        f"Letta API:      {'✓' if LETTA_API_KEY else '✗'}\n"
+        f"Mem0 API:       {'✓' if MEM0_API_KEY else '✗'} (deprecated - use Letta)\n"
+        f"Zo Computer:    {'✓' if ZO_API_KEY else '✗'} (optional)\n"
         + "="*60
     )
     print(config_status)

@@ -143,17 +143,17 @@ curl -X POST http://localhost:8000/chat \
 ### Test User Isolation
 ```python
 # In Python shell or test script
-from jessica_core import mem0_add_memory, mem0_search_memories
+from jessica_core import letta_add_memory, letta_search_memories
 
 # User A stores memory
-mem0_add_memory("My secret note", user_id="user_a")
+letta_add_memory("My secret note", user_id="user_a")
 
 # User B searches
-results = mem0_search_memories("secret", user_id="user_b")
+results = letta_search_memories("secret", user_id="user_b")
 assert len(results) == 0, "User B should not see User A's memories"
 
 # User A searches
-results = mem0_search_memories("secret", user_id="user_a")
+results = letta_search_memories("secret", user_id="user_a")
 assert len(results) > 0, "User A should see their own memories"
 ```
 
@@ -171,7 +171,8 @@ export FIREBASE_ADMIN_CREDENTIALS="/path/to/firebase-admin-sdk.json"
 export ANTHROPIC_API_KEY="sk-ant-..."
 export XAI_API_KEY="xai-..."
 export GOOGLE_AI_API_KEY="AIza..."
-export MEM0_API_KEY="mem0-..."
+export LETTA_API_KEY="letta-..."
+export ZO_API_KEY="zo-..."  # Optional - for Zo Computer integration
 ```
 
 ### Frontend (.env.local)
