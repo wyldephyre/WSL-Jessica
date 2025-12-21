@@ -4,7 +4,7 @@ A cognitive prosthetic and battle buddy AI system built for disabled veterans. J
 
 ## Overview
 
-Jessica Core is a Flask-based API server that provides intelligent routing between multiple AI providers (Claude, Grok, Gemini, and local Ollama) based on task type. It includes dual memory storage (local ChromaDB + Mem0 cloud) and supports voice transcription via Whisper.
+Jessica Core is a Flask-based API server that provides intelligent routing between multiple AI providers (Claude, Grok, Gemini, and local Ollama) based on task type. It includes dual memory storage (local ChromaDB + Letta cloud) and integrates with Zo Computer for workspace automation.
 
 ## Features
 
@@ -15,8 +15,8 @@ Jessica Core is a Flask-based API server that provides intelligent routing betwe
   - Complex reasoning → Claude (deep analysis, strategy)
   - Document/lookup tasks → Gemini (fast, efficient)
   - Standard tasks → Local Ollama (general conversation)
-- **Dual Memory System**: Stores conversations in both local ChromaDB and Mem0 cloud with automatic context retrieval
-- **Voice Transcription**: Integration with Whisper service for audio transcription and task extraction
+- **Dual Memory System**: Stores conversations in both local ChromaDB and Letta cloud with automatic context retrieval
+- **Zo Computer Integration**: Workspace automation, file storage, and calendar management via Zo Computer API
 - **Multiple AI Providers**: Support for Anthropic Claude, X.AI Grok, Google Gemini, and local Ollama
 - **Business Mode**: Specialized mode for WyldePhyre operations (4 divisions, SIK tracking, revenue focus)
 
@@ -34,13 +34,10 @@ Jessica Core is a Flask-based API server that provides intelligent routing betwe
 
 1. **Ollama** (running on `localhost:11434`)
    - Install from [ollama.ai](https://ollama.ai)
-   - Pull the base model: `ollama pull qwen2.5:32b`
+   - Pull the base model: `ollama pull nous-hermes2:10.7b-solar-q5_K_M`
    - Create custom Jessica models (see Model Setup below)
 
-2. **Whisper Service** (running on `localhost:5000`)
-   - Separate service for audio transcription
-
-3. **Memory Service** (running on `localhost:5001`)
+2. **Memory Service** (running on `localhost:5001`)
    - Local ChromaDB service for memory storage
 
 ### Python Requirements
@@ -87,7 +84,7 @@ python3 verify_models.py
 
 The setup script will:
 - Check if Ollama is running
-- Verify base model `qwen2.5:32b` exists (downloads if missing)
+- Verify base model `nous-hermes2:10.7b-solar-q5_K_M` exists (downloads if missing)
 - Create `jessica` custom model from `Modelfile`
 - Create `jessica-business` custom model from `Modelfile.business`
 
@@ -103,7 +100,8 @@ Set the following environment variables before running:
 export ANTHROPIC_API_KEY="your-claude-api-key"
 export XAI_API_KEY="your-grok-api-key"
 export GOOGLE_AI_API_KEY="your-gemini-api-key"
-export MEM0_API_KEY="your-mem0-api-key"
+export LETTA_API_KEY="your-letta-api-key"
+export ZO_API_KEY="your-zo-api-key"  # Optional - for Zo Computer integration
 ```
 
 On Windows:
@@ -111,7 +109,8 @@ On Windows:
 $env:ANTHROPIC_API_KEY="your-claude-api-key"
 $env:XAI_API_KEY="your-grok-api-key"
 $env:GOOGLE_AI_API_KEY="your-gemini-api-key"
-$env:MEM0_API_KEY="your-mem0-api-key"
+$env:LETTA_API_KEY="your-letta-api-key"
+$env:ZO_API_KEY="your-zo-api-key"  # Optional - for Zo Computer integration
 ```
 
 ### Master Prompt
@@ -182,14 +181,9 @@ Check status of all API connections and local services.
   "claude_api": true,
   "grok_api": true,
   "gemini_api": true,
-  "mem0_api": true
+  "letta_api": true
 }
 ```
-
-#### POST `/transcribe`
-Transcribe audio file.
-
-**Request:** Multipart form data with `audio` file
 
 #### POST `/memory/cloud/search`
 Search cloud memories.
@@ -267,8 +261,8 @@ npm run dev    # Development server on port 3000
 
 - **Chat Interface**: Send messages to Jessica, see routing info for each response
 - **Status Dashboard**: View all service connections (Ollama, APIs, memory)
-- **Memory Viewer**: Browse and search Mem0 cloud memories
-- **Audio Upload**: Transcribe audio files via Whisper service
+- **Memory Viewer**: Browse and search Letta cloud memories
+- **Zo Computer Integration**: Calendar, email, and file management via Zo Computer
 
 ## Documentation
 

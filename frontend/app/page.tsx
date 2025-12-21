@@ -1,34 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+// Firebase removed - Zo Computer handles tasks
 import { ChatInput } from '@/components/features/chat/ChatInput';
+import { ProviderHelp } from '@/components/features/chat/ProviderHelp';
 import type { Task } from '@/lib/types/task';
 
-// Shortcut card type
-interface Shortcut {
-  id: string;
-  name: string;
-  icon: React.ReactNode;
-  href: string;
-}
-
-// Simple icons
-const NoteIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-);
-
-const AudioIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-  </svg>
-);
-
-const shortcuts: Shortcut[] = [
-  { id: 'audio', name: 'Upload Audio', icon: <AudioIcon />, href: '/audio' },
-  { id: 'note', name: 'Quick Note', icon: <NoteIcon />, href: '/notes' },
-];
+// Shortcuts removed - Zo Computer handles audio uploads and notes
 
 /**
  * Home Page - Martin AI Inspired
@@ -40,16 +18,15 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [chatLoading, setChatLoading] = useState(false);
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [activeProvider, setActiveProvider] = useState<string | undefined>(undefined);
   const userName = 'Jason';
 
-  // Fetch pending tasks
+  // Tasks are now handled by Zo Computer - fetch via Zo API when needed
+  // For now, tasks are empty until Zo integration is complete
   const fetchTasks = useCallback(async () => {
     try {
-      setLoading(true);
-      const res = await fetch('/api/tasks?limit=5', { method: 'GET' });
-      if (!res.ok) throw new Error(`Failed to fetch tasks: HTTP ${res.status}`);
-      const data = await res.json();
-      setTasks((data?.tasks || []) as Task[]);
+      // TODO: Fetch tasks from Zo Computer API
+      setTasks([]);
     } catch (err) {
       console.error('[Home] Error fetching tasks:', err);
     } finally {
@@ -61,27 +38,34 @@ export default function Home() {
     fetchTasks();
   }, [fetchTasks]);
 
-  // Handle chat send
-  const handleSend = async (message: string, provider: string) => {
+  // Handle chat send - backend handles intelligent routing
+  const handleSend = async (message: string) => {
     setChatLoading(true);
     setMessages(prev => [...prev, { role: 'user', content: message }]);
+    setActiveProvider(undefined); // Reset provider indicator
 
     try {
-      // Route to appropriate API based on provider
-      const endpoint = provider === 'local' ? '/api/chat' : `/api/chat/${provider}`;
-      const response = await fetch(endpoint, {
+      // Always use /api/chat - backend handles intelligent routing based on commands
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, provider }),
+        body: JSON.stringify({ message, provider: 'auto' }),
       });
 
       const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.response || data.message || 'No response' }]);
+      
+      // Extract provider from routing info if available
+      const provider = data.routing?.provider || 'local';
+      setActiveProvider(provider);
+      
+      setMessages(prev => [...prev, { role: 'assistant', content: data.content || data.response || data.message || 'No response' }]);
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, { role: 'assistant', content: 'Error connecting to AI service.' }]);
     } finally {
+      // Clear provider indicator when response arrives
       setChatLoading(false);
+      setActiveProvider(undefined);
     }
   };
 
@@ -103,9 +87,11 @@ export default function Home() {
 
         {/* Chat Input Section */}
         <section className="mb-10">
+          <ProviderHelp />
           <ChatInput 
             onSend={handleSend} 
             isLoading={chatLoading}
+            activeProvider={activeProvider}
           />
           
           {/* Recent Messages */}
@@ -163,7 +149,7 @@ export default function Home() {
                   className="flex items-center gap-3 p-3 rounded-lg bg-gray-800/30 border border-gray-700/30 hover:border-gray-600/50 transition-colors group"
                 >
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500 flex-shrink-0" />
-                  <span className="flex-1 text-gray-300 text-sm">{task.text || task.title}</span>
+                  <span className="flex-1 text-gray-300 text-sm">{task.title || 'Untitled task'}</span>
                   <button className="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-gray-300 transition-all">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -173,31 +159,6 @@ export default function Home() {
                 </div>
               ))
             )}
-          </div>
-        </section>
-
-        {/* Shortcuts Section */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-            </svg>
-            <h2 className="text-lg font-medium text-gray-200">Shortcuts</h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {shortcuts.map((shortcut) => (
-              <a
-                key={shortcut.id}
-                href={shortcut.href}
-                className="p-4 rounded-lg bg-gray-800/30 border border-gray-700/30 hover:border-amber-500/30 hover:bg-gray-800/50 transition-all group"
-              >
-                <div className="w-10 h-10 rounded-lg bg-gray-700/50 flex items-center justify-center text-gray-400 group-hover:text-amber-500 transition-colors mb-3">
-                  {shortcut.icon}
-                </div>
-                <span className="text-sm text-gray-300">{shortcut.name}</span>
-              </a>
-            ))}
           </div>
         </section>
 
@@ -217,7 +178,7 @@ export default function Home() {
               <span className="text-sm text-gray-300">Today</span>
             </div>
             <div className="text-center py-4 text-gray-600 text-sm">
-              No upcoming events. Connect your calendar in Settings.
+              No upcoming events. Calendar is managed by Zo Computer.
             </div>
           </div>
         </section>

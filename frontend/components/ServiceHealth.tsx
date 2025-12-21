@@ -17,7 +17,8 @@ interface ServiceStatus {
   claude_api?: { configured: boolean };
   grok_api?: { configured: boolean };
   gemini_api?: { configured: boolean };
-  mem0_api?: { configured: boolean };
+  letta_api?: { configured: boolean };
+  mem0_api?: { configured: boolean }; // Deprecated
 }
 
 /**
@@ -160,11 +161,19 @@ export function ServiceHealth() {
           </div>
         )}
 
-        {status.mem0_api && (
+        {status.letta_api && (
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">Mem0 API</span>
-            <span className={status.mem0_api.configured ? 'text-green-400' : 'text-gray-500'}>
-              {status.mem0_api.configured ? '✓' : '○'}
+            <span className="text-gray-400">Letta API</span>
+            <span className={status.letta_api.configured ? 'text-green-400' : 'text-gray-500'}>
+              {status.letta_api.configured ? '✓' : '○'}
+            </span>
+          </div>
+        )}
+        {status.mem0_api && (
+          <div className="flex items-center justify-between opacity-50">
+            <span className="text-gray-400">Mem0 API (deprecated)</span>
+            <span className={status.mem0_api.configured ? 'text-yellow-400' : 'text-gray-500'}>
+              {status.mem0_api.configured ? '⚠' : '○'}
             </span>
           </div>
         )}

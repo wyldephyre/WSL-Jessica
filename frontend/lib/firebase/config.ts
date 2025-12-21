@@ -1,6 +1,6 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
-import { getStorage, FirebaseStorage } from 'firebase/storage';
+// Firebase Storage removed - Zo Computer handles file storage
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -20,7 +20,7 @@ if (getApps().length === 0) {
   app = getApps()[0];
 }
 
-// Initialize Firestore and Storage
+// Initialize Firestore (Storage removed - Zo Computer handles file storage)
 export const db: Firestore = getFirestore(app);
-export const storage: FirebaseStorage = getStorage(app);
+// export const storage: FirebaseStorage = getStorage(app); // Removed - Zo Computer handles storage
 

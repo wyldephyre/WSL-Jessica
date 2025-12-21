@@ -1,7 +1,6 @@
 import { env } from '@/lib/config/env';
-import { db } from '@/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Groq } from 'groq-sdk';
+// Firebase removed - Zo Computer handles task storage
 
 interface ExtractedTask {
   title: string;
@@ -82,16 +81,10 @@ Return JSON format:
     const tasks = parsed.tasks || [];
     const events = parsed.events || [];
 
-    // Save tasks to Firestore
-    const savePromises = tasks.map((task: ExtractedTask) =>
-      addDoc(collection(db, 'tasks'), {
-        ...task,
-        completed: false,
-        createdAt: serverTimestamp(),
-      })
-    );
-
-    await Promise.all(savePromises);
+    // TODO: Save tasks to Zo Computer API instead of Firestore
+    // Tasks are now handled by Zo Computer
+    // For now, return extracted tasks without saving locally
+    // await zoCreateTasks(tasks); // When Zo API is ready
 
     return { tasks, events };
   } catch (error) {

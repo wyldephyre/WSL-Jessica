@@ -9,7 +9,8 @@ export const env = {
   // GROQ_API_KEY and MEM0_API_KEY kept for server-side Next.js API routes only
   
   GROQ_API_KEY: process.env.GROQ_API_KEY || '', // Used in server-side Next.js routes only
-  MEM0_API_KEY: process.env.MEM0_API_KEY || '', // Used in server-side Next.js routes only
+  LETTA_API_KEY: process.env.LETTA_API_KEY || '', // Used in server-side Next.js routes only
+  MEM0_API_KEY: process.env.MEM0_API_KEY || '', // Deprecated - kept for migration period
 
   // Firebase
   FIREBASE_API_KEY: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -21,5 +22,12 @@ export const env = {
 
   // Backend API
   API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+
+  // Zo Computer API (replaces Google Workspace integrations)
+  ZO_API_BASE_URL: process.env.ZO_API_BASE_URL || 'https://api.zo.computer/v1',
+  ZO_API_KEY: process.env.ZO_API_KEY || '', // Server-side only
+  
+  // Letta API (replaces Mem0)
+  LETTA_API_BASE_URL: process.env.LETTA_API_BASE_URL || 'https://api.letta.ai/v1',
 } as const;
 

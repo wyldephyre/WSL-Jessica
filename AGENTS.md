@@ -9,13 +9,18 @@ This file provides Factory Droids with the context needed to work on Jessica eff
 
 ### Start Jessica (Full Stack)
 ```bash
-# In WSL Ubuntu terminal
-source ~/.bashrc          # Load API keys
-~/start-jessica.sh        # Starts all backend services
+# Terminal 1: Start Ollama (WSL)
+ollama serve
 
-# In separate PowerShell terminal  
-cd "D:\App Development\jessica-ai\frontend"
-npm run dev              # Starts Next.js frontend
+# Terminal 2: Start Backend Services (WSL)
+cd ~/jessica-core
+source ~/.bashrc          # CRITICAL: Load API keys
+source venv/bin/activate
+bash start-jessica.sh     # Starts Memory, Whisper, and Jessica Core
+
+# Terminal 3: Start Frontend (WSL)
+cd ~/jessica-core/frontend
+npm run dev              # Starts Next.js frontend on http://localhost:3000
 ```
 
 ### Stop Jessica
@@ -50,31 +55,31 @@ curl http://localhost:11434/api/tags
 ## PROJECT LAYOUT
 
 ```
-/home/phyre/jessica-core/           # WSL Ubuntu (PRIMARY)
+/home/phyre/jessica-core/           # WSL Ubuntu (PRIMARY - ALL CODE HERE)
 ├── jessica_core.py                 # Main orchestration server (Flask)
 ├── master_prompt.txt               # Jessica's personality/identity
 ├── memory_server.py                # ChromaDB memory service  
 ├── whisper_server.py               # Speech-to-text service
 ├── start-jessica.sh                # Startup script (all services)
 ├── venv/                           # Python virtual environment
-└── requirements.txt                # Python dependencies
+├── requirements.txt                # Python dependencies
+└── frontend/                       # Next.js web interface (CONSOLIDATED)
+    ├── app/                        # Next.js app router
+    ├── components/                 # React components
+    ├── lib/                        # API clients, utilities
+    └── .env.local                  # Frontend config (create from .env.local.example)
 
 /home/phyre/jessica-memory/         # ChromaDB data directory
 └── chroma.sqlite3                  # Vector database
-
-D:\App Development\jessica-ai\      # Windows (LEGACY - being phased out)
-└── frontend/                       # Next.js web interface
-    ├── app/                        # Next.js app router
-    ├── components/                 # React components
-    └── lib/                        # API clients, utilities
 
 ~/.bashrc                           # API keys stored here (CRITICAL)
 ```
 
 **IMPORTANT PATH NOTE:**
-- Jessica's code lives in **WSL Ubuntu** at `/home/phyre/jessica-core/`
+- **ALL Jessica code is now in WSL Ubuntu** at `/home/phyre/jessica-core/`
+- Frontend and backend are both in WSL (consolidated for simplicity)
 - Access from Windows: `\\wsl$\Ubuntu\home\phyre\jessica-core\`
-- Frontend is Windows-side, backend is WSL-side
+- Next.js API routes run server-side in WSL, so `localhost:8000` works correctly
 
 ---
 
@@ -165,9 +170,13 @@ ollama pull dolphin-llama3:8b
 # Create memory directory
 mkdir -p ~/jessica-memory
 
-# Frontend setup (in PowerShell)
-cd "D:\App Development\jessica-ai\frontend"
+# Frontend setup (in WSL)
+cd ~/jessica-core/frontend
 npm install
+
+# Create .env.local file (copy from example)
+cp .env.local.example .env.local
+# Edit .env.local if needed (defaults should work)
 ```
 
 ### Production Deployment
@@ -179,11 +188,11 @@ Future deployment target: Rumble Cloud (mission-aligned hosting).
 
 ## GOTCHAS & CRITICAL KNOWLEDGE
 
-### 1. WSL Path Confusion
-- Backend code is in **WSL** (`/home/phyre/`)
-- Frontend is in **Windows** (`D:\App Development\`)
-- These are SEPARATE filesystems
-- Access WSL from Windows: `\\wsl$\Ubuntu\...`
+### 1. WSL Path Confusion (RESOLVED)
+- **ALL code is now in WSL** (`/home/phyre/jessica-core/`)
+- Frontend and backend are consolidated in WSL for simplicity
+- Access WSL from Windows: `\\wsl$\Ubuntu\home\phyre\jessica-core\`
+- Next.js runs server-side in WSL, so `localhost:8000` connects correctly to backend
 
 ### 2. API Keys Must Be Sourced
 If Jessica can't reach external APIs, you forgot:
@@ -194,8 +203,8 @@ source ~/.bashrc
 ### 3. Ollama Must Start First
 Other services depend on Ollama. Start order:
 1. `ollama serve` (keep this terminal open)
-2. `~/start-jessica.sh` (in new terminal)
-3. `npm run dev` (frontend, in PowerShell)
+2. `~/start-jessica.sh` (in new terminal - starts backend services)
+3. `cd ~/jessica-core/frontend && npm run dev` (in new terminal - starts frontend)
 
 ### 4. Model Confusion
 - Jessica uses **dolphin-llama3:8b** (uncensored model)
@@ -220,10 +229,13 @@ pkill ollama
 ```
 
 ### 7. Frontend Environment Variables
-Frontend needs `.env.local` in `D:\App Development\jessica-ai\frontend\`:
-```
-NEXT_PUBLIC_FIREBASE_API_KEY=...
-# (Firebase config from project docs)
+Frontend needs `.env.local` in `~/jessica-core/frontend/`:
+```bash
+# Copy example file
+cp ~/jessica-core/frontend/.env.local.example ~/jessica-core/frontend/.env.local
+
+# Default API_URL (http://localhost:8000) should work
+# Add Firebase config if needed (see .env.local.example)
 ```
 
 ### 8. Token Efficiency Matters
@@ -246,12 +258,12 @@ User (Corporal Phyre) has ADHD and limited Claude tokens.
 - **Claude API** (Anthropic): Complex reasoning
 - **Grok API** (X.AI): Research queries
 - **Gemini API** (Google): Quick lookups
-- **Mem0 API**: Cloud memory sync
+- **Letta API**: Cloud memory sync (replaces Mem0)
 
 ### Optional APIs (Future)
 - **Memories.ai**: Visual memory (wearable camera integration)
 - **Plaud**: Audio dump processing
-- **Google Workspace**: Calendar, Gmail, Drive
+- **Zo Computer**: Workspace automation, calendar, email, file storage (replaces Google Workspace)
 
 ---
 

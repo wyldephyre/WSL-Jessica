@@ -1,4 +1,4 @@
-FROM qwen2.5:32b
+FROM nous-hermes2:10.7b-solar-q5_K_M
 
 PARAMETER temperature 0.8
 PARAMETER top_p 0.9

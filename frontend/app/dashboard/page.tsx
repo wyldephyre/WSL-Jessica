@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+// Firebase removed - Zo Computer handles tasks
 import TaskList from '@/components/features/tasks/TaskList';
 import MemoryManager from '@/components/features/memory/MemoryManager';
 import type { Task } from '@/lib/types/task';
@@ -22,11 +23,10 @@ export default function Dashboard() {
     try {
       setLoading(true);
       setError('');
-      const url = showCompleted ? '/api/tasks?includeCompleted=true&limit=500' : '/api/tasks?limit=500';
-      const res = await fetch(url, { method: 'GET' });
-      if (!res.ok) throw new Error(`Failed to fetch tasks: HTTP ${res.status}`);
-      const data = await res.json();
-      setTasks((data?.tasks || []) as Task[]);
+
+      // TODO: Fetch tasks from Zo Computer API
+      // Tasks are now handled by Zo Computer
+      setTasks([]);
     } catch (err) {
       console.error('[Dashboard] Error fetching tasks:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to load tasks';
@@ -40,19 +40,11 @@ export default function Dashboard() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.completed).length;
-  const pendingTasks = totalTasks - completedTasks;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTasks = tasks.filter(t => {
-    if (!t.dueDate) return false;
-    const dueDate = t.dueDate instanceof Date
-      ? t.dueDate
-      : new Date(t.dueDate as string);
-    dueDate.setHours(0, 0, 0, 0);
-    return dueDate.getTime() === today.getTime();
-  }).length;
+  // Task stats - Zo Computer handles tasks now
+  const totalTasks = 0;
+  const completedTasks = 0;
+  const pendingTasks = 0;
+  const todayTasks = 0;
 
   return (
     <div className="min-h-screen p-8">

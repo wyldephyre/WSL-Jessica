@@ -3,43 +3,62 @@ import { callAIProvider, AIProvider } from '@/lib/api/aiFactory';
 import { searchMemories, addConversation, addConversationToMultipleContexts, getCoreRelationshipMemories } from '@/lib/services/memoryService';
 import { handleApiError, ValidationError } from '@/lib/errors/AppError';
 import { MemoryContext } from '@/lib/types/memory';
-import { detectCalendarIntent } from '@/lib/utils/calendarIntent';
-import { createCalendarEvent } from '@/lib/api/google-calendar';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/firebase';
 import { buildSystemPrompt } from '@/lib/prompts/jessica-master-prompt';
 import { requireAuth } from '@/lib/middleware/auth';
+import { env } from '@/lib/config/env';
+
+// Agent logging helper - set ENABLE_AGENT_LOGGING=1 to enable
+const ENABLE_AGENT_LOGGING = process.env.ENABLE_AGENT_LOGGING === '1';
+function agentLog(location: string, message: string, data: any = {}) {
+  if (!ENABLE_AGENT_LOGGING) return;
+  fetch('http://127.0.0.1:7246/ingest/24e2521f-e070-4e10-b9bd-1790b19d541e', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ location, message, data, timestamp: Date.now(), sessionId: 'debug-session', runId: 'run1', hypothesisId: 'A' })
+  }).catch(() => {});
+}
 
 /**
- * Get Google OAuth token for the user
- * Uses authenticated userId from request
+ * Call Jessica Core backend directly (for local provider)
+ * This runs server-side in WSL, so localhost:8000 works correctly
  */
-async function getGoogleToken(userId: string): Promise<string | null> {
-  try {
-    
-    const tokensRef = collection(db, 'oauth_tokens');
-    const q = query(tokensRef, where('userId', '==', userId), where('provider', '==', 'google'));
-    const docs = await getDocs(q);
+async function callLocalBackend(message: string, mode: string = 'default'): Promise<{ content: string; routing?: any; request_id?: string }> {
+  agentLog('chat/route.ts:callLocalBackend', 'callLocalBackend entry', { messageLength: message.length, mode });
+  const backendUrl = env.API_URL || 'http://localhost:8000';
+  const backendEndpoint = `${backendUrl}/chat`;
 
-    if (docs.empty) {
-      return null;
-    }
-
-    const tokenDoc = docs.docs[0].data();
-    
-    // Check if token is expired (with 5 minute buffer)
-    if (tokenDoc.expires_at && Date.now() > tokenDoc.expires_at - 300000) {
-      return null;
-    }
-
-    return tokenDoc.access_token || null;
-  } catch (error) {
-    console.error('[Chat API] Error getting Google token:', error);
-    return null;
+  agentLog('chat/route.ts:callLocalBackend', 'Before fetch to backend', { endpoint: backendEndpoint });
+  const response = await fetch(backendEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message,
+      provider: 'local',
+      mode,
+    }),
+  });
+  
+  agentLog('chat/route.ts:callLocalBackend', 'After fetch response', { ok: response.ok, status: response.status });
+  if (!response.ok) {
+    agentLog('chat/route.ts:callLocalBackend', 'Response not OK', { status: response.status });
+    const errorData = await response.json().catch(() => ({}));
+    agentLog('chat/route.ts:callLocalBackend', 'Backend error details', { error: errorData.error, errorCode: errorData.error_code });
+    throw new Error(errorData.error || `Backend error: ${response.statusText}`);
   }
+
+  const data = await response.json();
+  agentLog('chat/route.ts:callLocalBackend', 'Backend success', { hasResponse: !!data.response, provider: data.routing?.provider });
+  return {
+    content: data.response || '',
+    routing: data.routing,
+    request_id: data.request_id,
+  };
 }
 
 export async function POST(req: NextRequest) {
+  agentLog('chat/route.ts:POST', 'POST handler entry');
   try {
     // Single-user system: Use constant user ID (backend handles this, but we need it for memory storage)
     // TODO: For multi-user, restore requireAuth(req)
@@ -47,13 +66,19 @@ export async function POST(req: NextRequest) {
     try {
       const authResult = await requireAuth(req);
       userId = authResult.userId;
+      agentLog('chat/route.ts:POST', 'Auth succeeded', { userId });
     } catch (authError) {
       // Single-user mode: Use constant user ID if auth fails
       // Backend uses USER_ID constant, but frontend memory service needs a user ID
       userId = 'PhyreBug'; // Match backend USER_ID constant
+      agentLog('chat/route.ts:POST', 'Auth failed, using default', { userId, error: String(authError) });
     }
     
-    const { message, context = 'personal' as MemoryContext, provider = 'auto' as AIProvider, memoryStorageContexts } = await req.json();
+    let { message, context = 'personal' as MemoryContext, provider = 'auto' as AIProvider, memoryStorageContexts } = await req.json();
+    agentLog('chat/route.ts:POST', 'Request parsed', { messageLength: message?.length, provider, context });
+    
+    // Always use 'auto' provider - backend handles intelligent routing based on commands
+    const routingProvider = 'auto';
     
     // Use memoryStorageContexts if provided (array), otherwise default to operational context
     // Support both old single context format and new array format for backward compatibility
@@ -67,134 +92,6 @@ export async function POST(req: NextRequest) {
       throw new ValidationError('Message is required');
     }
 
-    // Check for calendar event intent
-    const calendarIntent = detectCalendarIntent(message);
-    let calendarEventResult = null;
-
-    if (calendarIntent.hasIntent) {
-      // Get user's Google OAuth token
-      const accessToken = await getGoogleToken(userId);
-
-      if (!accessToken) {
-        // Return response indicating authentication needed
-        return NextResponse.json({
-          success: true,
-          message: "I'd be happy to create a calendar event for you! However, I need you to connect your Google Calendar first. Please go to the audio upload page and click 'Connect Google Calendar' to authorize access.",
-          provider: provider === 'auto' ? 'claude' : provider,
-          requiresAuth: true,
-          calendarIntent: calendarIntent,
-        });
-      }
-
-      // Create calendar event
-      try {
-        const now = new Date();
-        const rawStart = calendarIntent.eventData?.startTime;
-        const rawEnd = calendarIntent.eventData?.endTime;
-
-        const start = rawStart ? new Date(rawStart) : now;
-        const safeStart = Number.isNaN(start.getTime()) ? now : start;
-
-        const end = rawEnd ? new Date(rawEnd) : new Date(safeStart.getTime() + 60 * 60 * 1000);
-        const safeEnd = Number.isNaN(end.getTime()) ? new Date(safeStart.getTime() + 60 * 60 * 1000) : end;
-
-        const eventData = {
-          title: calendarIntent.eventData?.title || 'Untitled Event',
-          startTime: safeStart.toISOString(),
-          endTime: safeEnd.toISOString(),
-          location: calendarIntent.eventData?.location || undefined,
-        };
-
-        const createdEvent = await createCalendarEvent(eventData, accessToken, 'primary');
-        
-        calendarEventResult = {
-          success: true,
-          event: createdEvent,
-          message: `Calendar event "${eventData.title}" created successfully!`,
-        };
-
-        // Update the AI response to include calendar confirmation
-        const calendarConfirmation = `\n\n✅ Calendar event created: "${eventData.title}" (${safeStart.toLocaleString()} - ${safeEnd.toLocaleString()})`;
-        
-        // Retrieve relevant memories and core relationship memories in parallel
-        const [memories, coreRelationshipMemories] = await Promise.all([
-          searchMemories(message, {
-            user_id: userId,
-            context,
-            limit: 5,
-          }),
-          getCoreRelationshipMemories(userId),
-        ]);
-
-        // Format memory context for system prompt
-        const memoryContext = memories.length > 0
-          ? memories
-              .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
-              .filter((line) => line !== '- ')
-              .join('\n')
-          : 'No relevant memories found.';
-
-        // Build system prompt using master prompt system
-        const coreRelationshipContext =
-          coreRelationshipMemories.length > 0
-            ? coreRelationshipMemories
-                .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
-                .filter((line) => line !== '- ')
-                .join('\n')
-            : '';
-
-        const combinedMemoryContext =
-          coreRelationshipContext
-            ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
-            : memoryContext;
-
-        const systemPrompt = buildSystemPrompt({
-          memoryContext: combinedMemoryContext,
-          additionalInstructions: `Memory context namespace: ${context}\nA calendar event has been created. Confirm this to the user in a friendly way.`,
-        });
-
-        // Convert 'auto' provider to 'local' (backend handles intelligent routing)
-        const calendarProvider = provider === 'auto' ? 'local' : provider;
-
-        // Call AI provider with intelligent routing
-        const response = await callAIProvider(calendarProvider, message + calendarConfirmation, systemPrompt);
-
-        // Store conversation in memory (async, non-blocking) using memory storage contexts
-        if (memoryContexts.length === 1) {
-          addConversation(
-            [
-              { role: 'user', content: message },
-              { role: 'assistant', content: response.content }
-            ],
-            userId,
-            memoryContexts[0]
-          ).catch((err: Error) => console.error('[Chat API] Memory storage failed:', err));
-        } else {
-          addConversationToMultipleContexts(
-            [
-              { role: 'user', content: message },
-              { role: 'assistant', content: response.content }
-            ],
-            userId,
-            memoryContexts
-          ).catch((err: Error) => console.error('[Chat API] Multi-context memory storage failed:', err));
-        }
-
-        return NextResponse.json({
-          success: true,
-          ...response,
-          calendarEvent: calendarEventResult,
-        });
-      } catch (calendarError) {
-        console.error('[Chat API] Calendar event creation failed:', calendarError);
-        // Continue with normal AI response, but note the calendar error
-        calendarEventResult = {
-          success: false,
-          error: calendarError instanceof Error ? calendarError.message : 'Failed to create calendar event',
-        };
-      }
-    }
-
     // Retrieve relevant memories and core relationship memories in parallel
     const [memories, coreRelationshipMemories] = await Promise.all([
       searchMemories(message, {
@@ -206,37 +103,25 @@ export async function POST(req: NextRequest) {
     ]);
 
     // Format memory context for system prompt
+    // Note: searchMemories returns Memory[] but API actually returns { memory: string } objects
     const memoryContext = memories.length > 0
-      ? memories
-          .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
-          .filter((line) => line !== '- ')
-          .join('\n')
+      ? memories.map((m: any) => `- ${m.memory || m.content || String(m)}`).join('\n')
       : 'No relevant memories found.';
 
-    // Build system prompt using master prompt system
-    const coreRelationshipContext =
-      coreRelationshipMemories.length > 0
-        ? coreRelationshipMemories
-            .map((m) => `- ${('memory' in (m as any) ? (m as any).memory : (m as any).content) || ''}`)
-            .filter((line) => line !== '- ')
-            .join('\n')
-        : '';
-
-    const combinedMemoryContext =
-      coreRelationshipContext
-        ? `${memoryContext}\n\nCore relationship context:\n${coreRelationshipContext}`
-        : memoryContext;
-
+    // Build system prompt using master prompt system (includes core relationship memories)
     const systemPrompt = buildSystemPrompt({
-      memoryContext: combinedMemoryContext,
-      additionalInstructions: `Memory context namespace: ${context}`,
+      memoryContext: memoryContext + (coreRelationshipMemories.length > 0 ? '\n\nCore relationship context:\n' + coreRelationshipMemories.map((m: any) => `- ${m.memory || m.content || String(m)}`).join('\n') : '')
     });
 
-    // Convert 'auto' provider to 'local' (backend handles intelligent routing)
-    const actualProvider = provider === 'auto' ? 'local' : provider;
+    // Backend handles intelligent routing - always use 'auto' to let backend decide
+    const actualProvider = routingProvider === 'auto' ? 'local' : routingProvider;
+    agentLog('chat/route.ts:POST', 'Before AI call', { actualProvider, messageLength: message?.length });
 
-    // Call AI provider with intelligent routing
-    const response = await callAIProvider(actualProvider, message, systemPrompt);
+    // Call AI provider - use direct backend call for local, otherwise use callAIProvider
+    const response = actualProvider === 'local'
+      ? await callLocalBackend(message, 'default')
+      : await callAIProvider(actualProvider, message, systemPrompt);
+    agentLog('chat/route.ts:POST', 'After AI call', { hasContent: !!response?.content, contentLength: response?.content?.length });
 
     // Store conversation in memory (async, non-blocking) using memory storage contexts
     if (memoryContexts.length === 1) {
@@ -246,7 +131,7 @@ export async function POST(req: NextRequest) {
           { role: 'assistant', content: response.content }
         ],
         userId,
-        memoryContexts[0]
+        memoryContexts[0] || 'personal'
       ).catch((err: Error) => console.error('[Chat API] Memory storage failed:', err));
     } else {
       addConversationToMultipleContexts(
@@ -262,10 +147,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       ...response,
-      ...(calendarEventResult && { calendarEvent: calendarEventResult }),
     });
 
   } catch (error) {
+    agentLog('chat/route.ts:POST', 'Error caught', { error: String(error), name: (error as Error)?.name, stack: (error as Error)?.stack?.substring(0, 200) });
     return handleApiError(error);
   }
 }
